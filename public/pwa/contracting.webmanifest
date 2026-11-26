@@ -1,0 +1,35 @@
+{
+  "id": "/contracting",
+  "name": "Contracting App \u2014 Bale Contract System",
+  "short_name": "Contracting",
+  "description": "Register farmers and manage season tobacco contracts.",
+  "start_url": "/contracting",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f2",
+  "theme_color": "#2e7d32",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/pwa/contracting-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa/contracting-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa/contracting-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
