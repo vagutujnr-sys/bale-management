@@ -1299,17 +1299,22 @@ async function createPhoneAccount(
   if (identity instanceof Response) return identity;
 
   const { userId } = identity;
-  const profile = await makeSupabaseRequest(config.url, config.serviceKey, "/rest/v1/profiles", {
-    method: "POST",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({
-      user_id: userId,
-      display_name: displayName,
-      role: accountKind,
-      farmer_id: null,
-      phone_e164: phone,
-    }),
-  });
+  const profile = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    "/rest/v1/profiles?on_conflict=user_id",
+    {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({
+        user_id: userId,
+        display_name: displayName,
+        role: accountKind,
+        farmer_id: null,
+        phone_e164: phone,
+      }),
+    },
+  );
   if (!profile.ok) {
     const profileError = await responseJson(profile.clone());
     console.error("Supabase account profile insert failed.", {

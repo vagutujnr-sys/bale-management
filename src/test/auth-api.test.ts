@@ -160,6 +160,61 @@ describe("server auth API", () => {
     expect(JSON.stringify(logError.mock.calls)).not.toContain("private database details");
   });
 
+  it("upserts the profile created by the auth-user trigger", async () => {
+    const userId = "11111111-1111-4111-8111-111111111111";
+    let authTriggerCreatedProfile = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const method = init?.method ?? "GET";
+        if (url.pathname === "/rest/v1/profiles" && method === "GET") {
+          return Response.json([]);
+        }
+        if (url.pathname === "/auth/v1/admin/users" && method === "POST") {
+          authTriggerCreatedProfile = true;
+          return Response.json({ id: userId }, { status: 201 });
+        }
+        if (url.pathname === "/rest/v1/profiles" && method === "POST") {
+          expect(authTriggerCreatedProfile).toBe(true);
+          expect(url.searchParams.get("on_conflict")).toBe("user_id");
+          expect(new Headers(init?.headers).get("Prefer")).toBe(
+            "resolution=merge-duplicates,return=minimal",
+          );
+          expect(JSON.parse(String(init?.body))).toMatchObject({
+            user_id: userId,
+            display_name: "Example Farmer",
+            role: "farmer",
+            farmer_id: null,
+            phone_e164: "+263771234567",
+          });
+          return new Response(null, { status: 204 });
+        }
+        if (url.pathname === "/rest/v1/account_onboarding" && method === "POST") {
+          return new Response(null, { status: 201 });
+        }
+        throw new Error(`Unexpected Supabase request: ${method} ${url.pathname}`);
+      }),
+    );
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/account-create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          phone: "+263771234567",
+          pin: "123456",
+          displayName: "Example Farmer",
+          accountKind: "farmer",
+        }),
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(201);
+    await expect(response?.json()).resolves.toEqual({ created: true });
+  });
+
   it("returns the inserted farm row when saving a new farm", async () => {
     const userId = "77777777-7777-4777-8777-777777777777";
     const farmId = "88888888-8888-4888-8888-888888888888";
