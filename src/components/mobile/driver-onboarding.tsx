@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LanguageSelector } from "@/components/mobile/language-selector";
 import {
   completeDriverOnboarding,
   refreshAccountProfile,
@@ -8,6 +9,7 @@ import {
   type LinkedAccountProfile,
 } from "@/lib/account-auth";
 import { driverRegistrationFields, type DriverRegistrationDraft } from "@/lib/driver-profile";
+import { useLanguage } from "@/lib/language-context";
 
 const steps = ["transporter", "driver", "vehicle"] as const;
 type Step = (typeof steps)[number];
@@ -65,6 +67,7 @@ export function DriverOnboarding({
   onComplete: (account: LinkedAccountProfile, warning?: string) => void;
   onLater: () => void;
 }) {
+  const { t } = useLanguage();
   const [registration, setRegistration] = useState(() => initialRegistration(account));
   const [step, setStep] = useState<Step>(() => initialStep(account));
   const [busy, setBusy] = useState(false);
@@ -100,7 +103,9 @@ export function DriverOnboarding({
         onComplete(profile, result.warning);
       }
     } catch (stepError) {
-      setError(stepError instanceof Error ? stepError.message : "Your details could not be saved.");
+      setError(
+        t(stepError instanceof Error ? stepError.message : "Your details could not be saved."),
+      );
     } finally {
       setBusy(false);
     }
@@ -115,10 +120,16 @@ export function DriverOnboarding({
 
   return (
     <section className="flex flex-1 flex-col px-5 pb-8 pt-6">
-      <p className="text-sm font-semibold text-primary">Driver/Transporter profile</p>
-      <h1 className="mt-1 text-2xl font-bold">{title}</h1>
+      <div className="mb-3 flex justify-end">
+        <LanguageSelector />
+      </div>
+      <p className="text-sm font-semibold text-primary">{t("Driver/Transporter profile")}</p>
+      <h1 className="mt-1 text-2xl font-bold">{t(title)}</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Step {steps.indexOf(step) + 1} of {steps.length}. Your progress is saved as you continue.
+        {t("Step {step} of {total}. Your progress is saved as you continue.", {
+          step: steps.indexOf(step) + 1,
+          total: steps.length,
+        })}
       </p>
       <form
         className="mt-6 space-y-4"
@@ -136,7 +147,7 @@ export function DriverOnboarding({
           const isPhone = field === "phone" || field === "transporterPhone";
           return (
             <label key={field} className="block space-y-1.5">
-              <span className="text-sm font-medium">{labels[field]}</span>
+              <span className="text-sm font-medium">{t(labels[field])}</span>
               <Input
                 type={type}
                 inputMode={isPhone ? "tel" : field === "capacityKg" ? "decimal" : undefined}
@@ -157,10 +168,10 @@ export function DriverOnboarding({
           </p>
         )}
         <Button type="submit" size="lg" className="w-full rounded-xl" disabled={busy}>
-          {busy ? "Saving..." : step === "vehicle" ? "Finish profile" : "Continue"}
+          {busy ? t("Saving...") : step === "vehicle" ? t("Finish profile") : t("Continue")}
         </Button>
         <Button type="button" variant="ghost" className="w-full" onClick={onLater}>
-          Complete later
+          {t("Complete later")}
         </Button>
       </form>
     </section>

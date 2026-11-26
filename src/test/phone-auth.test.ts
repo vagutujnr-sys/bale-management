@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isSixDigitPin, normalizePhoneNumber, phoneToAuthEmail } from "../lib/phone-auth";
+import { getInternationalPhone } from "../lib/phone-number";
 import { getFarmerProfileCompletion, farmerProfileFields } from "../lib/farmer-profile";
 
 describe("phone-based email aliases", () => {
@@ -16,6 +17,12 @@ describe("phone-based email aliases", () => {
 
   it("rejects phone numbers that cannot be normalized", () => {
     expect(() => normalizePhoneNumber("123")).toThrow("Enter a valid mobile number");
+  });
+
+  it("combines a selected country code and national number, removing a typed trunk zero", () => {
+    expect(getInternationalPhone("+263", "077 123 4567")).toBe("+263771234567");
+    expect(getInternationalPhone("+27", "82 123 4567")).toBe("+27821234567");
+    expect(() => getInternationalPhone("+263", "77 123")).toThrow("Enter a 9-digit mobile number");
   });
 });
 

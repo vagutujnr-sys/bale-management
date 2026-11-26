@@ -2,6 +2,10 @@ import { useState } from "react";
 import appIcon from "@/assets/leaf-appicon.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LanguageSelector } from "@/components/mobile/language-selector";
+import { PhoneNumberField } from "@/components/mobile/phone-number-field";
+import { useLanguage } from "@/lib/language-context";
+import { getInternationalPhone } from "@/lib/phone-number";
 import {
   checkPhoneAccount,
   createPhoneAccount,
@@ -30,12 +34,16 @@ export function MobileAccountAccess({
 }) {
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [countryCode, setCountryCode] = useState("+263");
   const [pin, setPin] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [code, setCode] = useState("");
   const [expectedCode, setExpectedCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const { t } = useLanguage();
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -43,7 +51,7 @@ export function MobileAccountAccess({
     try {
       await action();
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Something went wrong.");
+      setError(t(actionError instanceof Error ? actionError.message : "Something went wrong."));
     } finally {
       setBusy(false);
     }
@@ -51,7 +59,9 @@ export function MobileAccountAccess({
 
   const start = () =>
     run(async () => {
-      const exists = await checkPhoneAccount(phone);
+      const internationalPhone = getInternationalPhone(countryCode, phoneNumber);
+      setPhone(internationalPhone);
+      const exists = await checkPhoneAccount(internationalPhone);
       if (exists) {
         setStep("pin");
         return;
@@ -86,9 +96,12 @@ export function MobileAccountAccess({
     });
 
   return (
-    <main className="flex flex-1 flex-col items-center overflow-y-auto px-6 pb-8 pt-12">
+    <main className="flex flex-1 flex-col items-center overflow-y-auto px-6 pb-8 pt-4">
+      <header className="flex w-full justify-end">
+        <LanguageSelector />
+      </header>
       <img src={appIcon} alt="" className="h-24 w-24 object-contain" />
-      <h1 className="mt-3 text-center text-2xl font-extrabold text-primary-deep">{title}</h1>
+      <h1 className="mt-3 text-center text-2xl font-extrabold text-primary-deep">{t(title)}</h1>
       <div className="mt-10 w-full max-w-sm">
         {step === "phone" && (
           <form
@@ -98,19 +111,15 @@ export function MobileAccountAccess({
               void start();
             }}
           >
-            <label className="block space-y-2">
-              <span className="text-sm font-medium">Mobile number</span>
-              <Input
-                type="tel"
-                autoComplete="tel"
-                inputMode="tel"
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-                required
-              />
-            </label>
+            <PhoneNumberField
+              label="Mobile number"
+              countryCode={countryCode}
+              number={phoneNumber}
+              onCountryCodeChange={setCountryCode}
+              onNumberChange={setPhoneNumber}
+            />
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={busy}>
-              {busy ? "Checking..." : "Continue"}
+              {busy ? t("Checking...") : t("Continue")}
             </Button>
           </form>
         )}
@@ -121,7 +130,7 @@ export function MobileAccountAccess({
             onSubmit={(event) => {
               event.preventDefault();
               if (code !== expectedCode) {
-                setError("Enter the displayed code to continue.");
+                setError(t("Enter the displayed code to continue."));
                 return;
               }
               setError("");
@@ -129,7 +138,7 @@ export function MobileAccountAccess({
             }}
           >
             <label className="block space-y-2">
-              <span className="text-sm font-medium">One-time code</span>
+              <span className="text-sm font-medium">{t("One-time code")}</span>
               <Input
                 type="text"
                 inputMode="numeric"
@@ -141,7 +150,7 @@ export function MobileAccountAccess({
               />
             </label>
             <Button type="submit" size="lg" className="w-full rounded-xl">
-              Continue
+              {t("Continue")}
             </Button>
           </form>
         )}
@@ -155,7 +164,7 @@ export function MobileAccountAccess({
             }}
           >
             <label className="block space-y-2">
-              <span className="text-sm font-medium">Six-digit PIN</span>
+              <span className="text-sm font-medium">{t("Six-digit PIN")}</span>
               <Input
                 type="password"
                 inputMode="numeric"
@@ -168,17 +177,19 @@ export function MobileAccountAccess({
               />
             </label>
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={busy}>
-              {busy ? "Signing in..." : "Sign in"}
+              {busy ? t("Signing in...") : t("Sign in")}
             </Button>
             <button
               type="button"
               className="w-full text-sm font-medium text-primary"
               onClick={() => {
                 setPin("");
+                setPhoneNumber("");
+                setPhone("");
                 setStep("phone");
               }}
             >
-              Use another number
+              {t("Use another number")}
             </button>
           </form>
         )}
@@ -192,7 +203,7 @@ export function MobileAccountAccess({
             }}
           >
             <label className="block space-y-2">
-              <span className="text-sm font-medium">Full name</span>
+              <span className="text-sm font-medium">{t("Full name")}</span>
               <Input
                 autoComplete="name"
                 value={displayName}
@@ -201,7 +212,7 @@ export function MobileAccountAccess({
               />
             </label>
             <label className="block space-y-2">
-              <span className="text-sm font-medium">Set a six-digit PIN</span>
+              <span className="text-sm font-medium">{t("Set a six-digit PIN")}</span>
               <Input
                 type="password"
                 inputMode="numeric"
@@ -213,8 +224,28 @@ export function MobileAccountAccess({
                 required
               />
             </label>
+            <label className="flex items-start gap-2 text-sm leading-5">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={acceptedTerms}
+                onChange={(event) => setAcceptedTerms(event.target.checked)}
+                required
+              />
+              <span>
+                {t("I agree to the")}{" "}
+                <a
+                  className="font-semibold text-primary underline"
+                  href="/#terms"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("Terms and conditions")}
+                </a>
+              </span>
+            </label>
             <Button type="submit" size="lg" className="w-full rounded-xl" disabled={busy}>
-              {busy ? "Creating account..." : "Create account"}
+              {busy ? t("Creating account...") : t("Create account")}
             </Button>
           </form>
         )}
@@ -225,6 +256,11 @@ export function MobileAccountAccess({
           </p>
         )}
       </div>
+      <footer className="mt-auto pt-8 text-center text-xs text-muted-foreground">
+        <a className="underline" href="/#terms" target="_blank" rel="noreferrer">
+          {t("Terms and conditions")}
+        </a>
+      </footer>
     </main>
   );
 }

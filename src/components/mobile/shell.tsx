@@ -2,17 +2,20 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Bell, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import appIcon from "@/assets/leaf-appicon.png";
+import { LanguageSelector } from "@/components/mobile/language-selector";
 import { useIsMobileDevice } from "@/hooks/use-mobile";
+import { useLanguage } from "@/lib/language-context";
 import { cn } from "@/lib/utils";
 
 export function MobileDeviceGate({ children }: { children: ReactNode }) {
   const isMobileDevice = useIsMobileDevice();
+  const { t } = useLanguage();
 
   if (isMobileDevice === undefined) return null;
   if (!isMobileDevice) {
     return (
       <main className="grid min-h-screen place-items-center bg-background px-6 text-center">
-        <p>Reserved for mobile. Access this portal using your mobile device.</p>
+        <p>{t("Reserved for mobile. Access this portal using your mobile device.")}</p>
       </main>
     );
   }
@@ -41,22 +44,28 @@ export function AppHeader({
   onBell?: () => void;
   unread?: number;
 }) {
+  const { t } = useLanguage();
   return (
     <div className="flex items-center justify-between px-5 pt-5">
       <div className="flex items-center gap-3">
         <img src={appIcon} alt="" className="h-10 w-10 object-contain" />
-        <p className="text-sm font-bold leading-tight text-primary-deep">{appName}</p>
+        <p className="text-sm font-bold leading-tight text-primary-deep">{t(appName)}</p>
       </div>
-      <button
-        onClick={onBell}
-        aria-label="Notifications"
-        className="relative rounded-full p-2 text-primary-deep hover:bg-muted"
-      >
-        <Bell className="h-6 w-6" />
-        {!!unread && (
-          <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-background" />
+      <div className="flex items-center gap-1">
+        <LanguageSelector />
+        {onBell && (
+          <button
+            onClick={onBell}
+            aria-label={t("Notifications")}
+            className="relative rounded-full p-2 text-primary-deep hover:bg-muted"
+          >
+            <Bell className="h-6 w-6" />
+            {!!unread && (
+              <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-background" />
+            )}
+          </button>
         )}
-      </button>
+      </div>
     </div>
   );
 }
@@ -70,13 +79,17 @@ export function SubHeader({
   onBack: () => void;
   right?: ReactNode;
 }) {
+  const { t } = useLanguage();
   return (
-    <div className="grid grid-cols-[40px_1fr_40px] items-center px-4 pt-5 pb-3">
-      <button onClick={onBack} aria-label="Back" className="rounded-full p-2 hover:bg-muted">
+    <div className="grid grid-cols-[40px_1fr_auto] items-center px-4 pt-5 pb-3">
+      <button onClick={onBack} aria-label={t("Back")} className="rounded-full p-2 hover:bg-muted">
         <ArrowLeft className="h-5 w-5" />
       </button>
-      <h1 className="truncate text-center text-lg font-bold">{title}</h1>
-      <div className="flex justify-end">{right}</div>
+      <h1 className="truncate text-center text-lg font-bold">{t(title)}</h1>
+      <div className="flex items-center justify-end gap-1">
+        {right}
+        <LanguageSelector />
+      </div>
     </div>
   );
 }
@@ -95,6 +108,7 @@ export function BottomNav<T extends string>({
   active: T;
   onChange: (t: T) => void;
 }) {
+  const { t } = useLanguage();
   return (
     <nav
       className="grid border-t bg-card"
@@ -112,7 +126,7 @@ export function BottomNav<T extends string>({
             )}
           >
             <Icon className="h-5 w-5" strokeWidth={on ? 2.5 : 2} />
-            {label}
+            {t(label)}
             {on && <span className="absolute bottom-0 h-0.5 w-10 rounded-full bg-primary" />}
           </button>
         );
@@ -134,6 +148,7 @@ export function StatCard({
   tone?: "primary" | "gold" | "ember";
   onClick?: () => void;
 }) {
+  const { t } = useLanguage();
   const toneCls = { primary: "text-primary", gold: "text-gold", ember: "text-ember" }[tone];
   return (
     <button
@@ -143,7 +158,7 @@ export function StatCard({
       <Icon className={cn("h-8 w-8 shrink-0", toneCls)} />
       <div className="min-w-0">
         <div className="truncate text-xl font-extrabold">{value}</div>
-        <div className="text-xs leading-tight text-muted-foreground">{label}</div>
+        <div className="text-xs leading-tight text-muted-foreground">{t(label)}</div>
       </div>
     </button>
   );
@@ -162,6 +177,7 @@ export function Pill({
   children: ReactNode;
   tone?: keyof typeof pillTones;
 }) {
+  const { t } = useLanguage();
   return (
     <span
       className={cn(
@@ -169,7 +185,7 @@ export function Pill({
         pillTones[tone],
       )}
     >
-      {children}
+      {typeof children === "string" ? t(children) : children}
     </span>
   );
 }
@@ -183,12 +199,13 @@ export function SectionTitle({
   action?: string;
   onAction?: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <div className="mb-3 flex items-center justify-between">
-      <h2 className="text-base font-bold">{title}</h2>
+      <h2 className="text-base font-bold">{t(title)}</h2>
       {action && (
         <button onClick={onAction} className="text-sm font-semibold text-primary">
-          {action} ›
+          {t(action)} ›
         </button>
       )}
     </div>
@@ -196,9 +213,10 @@ export function SectionTitle({
 }
 
 export function SystemLink() {
+  const { t } = useLanguage();
   return (
     <Link to="/" className="text-sm font-semibold text-primary hover:underline">
-      ← Farmer App home
+      ← {t("Farmer App home")}
     </Link>
   );
 }

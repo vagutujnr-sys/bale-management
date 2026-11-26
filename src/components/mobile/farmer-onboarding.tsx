@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LanguageSelector } from "@/components/mobile/language-selector";
 import {
   completeFarmerOnboarding,
   refreshAccountProfile,
@@ -10,6 +11,7 @@ import {
   type LinkedAccountProfile,
 } from "@/lib/account-auth";
 import type { FarmerProfileDraft } from "@/lib/farmer-profile";
+import { useLanguage } from "@/lib/language-context";
 
 const steps = ["identity", "farm", "contact"] as const;
 type Step = (typeof steps)[number];
@@ -64,6 +66,7 @@ export function FarmerOnboarding({
   onComplete: (account: LinkedAccountProfile) => void;
   onLater: (farms: AccountFarm[]) => void;
 }) {
+  const { t } = useLanguage();
   const [draft, setDraft] = useState(() => initialDraft(account));
   const [step, setStep] = useState<Step>(() => initialStep(account));
   const [primaryFarm, setPrimaryFarm] = useState(
@@ -103,7 +106,9 @@ export function FarmerOnboarding({
         onComplete(result);
       }
     } catch (stepError) {
-      setError(stepError instanceof Error ? stepError.message : "Your details could not be saved.");
+      setError(
+        t(stepError instanceof Error ? stepError.message : "Your details could not be saved."),
+      );
     } finally {
       setBusy(false);
     }
@@ -118,12 +123,20 @@ export function FarmerOnboarding({
 
   return (
     <section className="flex flex-1 flex-col px-5 pb-8 pt-6">
-      <p className="text-sm font-semibold text-primary">Farmer profile</p>
+      <div className="mb-3 flex justify-end">
+        <LanguageSelector />
+      </div>
+      <p className="text-sm font-semibold text-primary">{t("Farmer profile")}</p>
       <h1 className="mt-1 text-2xl font-bold">
-        {step === "identity" ? "Your details" : step === "farm" ? "Your farm" : "Contact details"}
+        {t(
+          step === "identity" ? "Your details" : step === "farm" ? "Your farm" : "Contact details",
+        )}
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Step {steps.indexOf(step) + 1} of {steps.length}. Your progress is saved as you continue.
+        {t("Step {step} of {total}. Your progress is saved as you continue.", {
+          step: steps.indexOf(step) + 1,
+          total: steps.length,
+        })}
       </p>
       <form
         className="mt-6 space-y-4"
@@ -134,7 +147,7 @@ export function FarmerOnboarding({
       >
         {fields.map((field) => (
           <label key={field} className="block space-y-1.5">
-            <span className="text-sm font-medium">{labels[field]}</span>
+            <span className="text-sm font-medium">{t(labels[field] ?? "")}</span>
             <Input
               type={field === "alternatePhone" ? "tel" : "text"}
               autoComplete={field === "alternatePhone" ? "tel" : undefined}
@@ -150,7 +163,7 @@ export function FarmerOnboarding({
           </p>
         )}
         <Button type="submit" size="lg" className="w-full rounded-xl" disabled={busy}>
-          {busy ? "Saving..." : step === "contact" ? "Finish profile" : "Continue"}
+          {busy ? t("Saving...") : step === "contact" ? t("Finish profile") : t("Continue")}
         </Button>
         <Button
           type="button"
@@ -167,7 +180,7 @@ export function FarmerOnboarding({
             )
           }
         >
-          Complete later
+          {t("Complete later")}
         </Button>
       </form>
     </section>

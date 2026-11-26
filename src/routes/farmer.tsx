@@ -34,6 +34,9 @@ import {
 } from "@/components/mobile/shell";
 import { FarmerOnboarding } from "@/components/mobile/farmer-onboarding";
 import { MobileAccountAccess } from "@/components/mobile/account-access";
+import { LanguageSelector } from "@/components/mobile/language-selector";
+import { LanguageProvider } from "@/lib/language";
+import { useLanguage } from "@/lib/language-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -94,6 +97,14 @@ const me = farmers[0]!;
 const myBales = bales.filter((b) => b.farmerId === me.id);
 
 function FarmerApp() {
+  return (
+    <LanguageProvider>
+      <FarmerAppContent />
+    </LanguageProvider>
+  );
+}
+
+function FarmerAppContent() {
   const [signedIn, setSignedIn] = useState(false);
   const [account, setAccount] = useState<LinkedAccountProfile | null>(null);
   const [screen, setScreen] = useState<Screen>("home");
@@ -101,6 +112,7 @@ function FarmerApp() {
   const [notes, setNotes] = useState(seedNotes);
   const [deliveries, setDeliveries] = useState(seedDeliveries);
   const unread = notes.filter((n) => n.unread).length;
+  const { t } = useLanguage();
 
   const go = (s: Screen) => {
     setDrawer(false);
@@ -130,8 +142,9 @@ function FarmerApp() {
                 role="status"
                 className="mx-5 mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
               >
-                Your profile is live. Contract, delivery, bale, statement, and payment screens still
-                show demo data.
+                {t(
+                  "Your profile is live. Contract, delivery, bale, statement, and payment screens still show demo data.",
+                )}
               </p>
               {screen === "home" && (
                 <HomeScreen
@@ -240,6 +253,7 @@ function HomeScreen({
   completion?: number | undefined;
   needsOnboarding: boolean;
 }) {
+  const { t } = useLanguage();
   const hour = new Date().getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const farmerName = farmer ? `${farmer.first_name} ${farmer.surname}` : me.name;
@@ -248,10 +262,12 @@ function HomeScreen({
       <div className="bg-field pb-6">
         <AppHeader appName="Farmer App" unread={unread} onBell={() => go("notifications")} />
         <div className="px-5 pt-6">
-          <p className="text-muted-foreground">{greet},</p>
+          <p className="text-muted-foreground">{t(greet)},</p>
           <h1 className="text-3xl font-extrabold text-primary-deep">{farmerName}</h1>
           <p className="text-sm text-muted-foreground">
-            {farmer ? `Grower #${farmer.grower_number}` : "Your tobacco journey, our priority"}
+            {farmer
+              ? `${t("Grower")} #${farmer.grower_number}`
+              : t("Your tobacco journey, our priority")}
           </p>
         </div>
       </div>
@@ -263,9 +279,11 @@ function HomeScreen({
             className="-mt-2 flex w-full items-center justify-between rounded-2xl border bg-card p-4 text-left shadow-card"
           >
             <span>
-              <span className="block font-semibold">Finish setting up your farmer profile</span>
+              <span className="block font-semibold">
+                {t("Finish setting up your farmer profile")}
+              </span>
               <span className="mt-1 block text-sm text-muted-foreground">
-                Add your farm and grower details when you are ready.
+                {t("Add your farm and grower details when you are ready.")}
               </span>
             </span>
             <ChevronRight className="h-5 w-5 shrink-0" />
@@ -278,7 +296,7 @@ function HomeScreen({
             className="-mt-2 w-full rounded-2xl border bg-card p-4 text-left shadow-card"
           >
             <div className="flex items-center justify-between text-sm font-semibold">
-              <span>Profile completion</span>
+              <span>{t("Profile completion")}</span>
               <span>{completion ?? 0}%</span>
             </div>
             <div
@@ -301,10 +319,12 @@ function HomeScreen({
         >
           <FileText className="h-9 w-9 shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm opacity-80">My Contract</p>
+            <p className="text-sm opacity-80">{t("My Contract")}</p>
             <p className="text-2xl font-extrabold">{contract.season}</p>
           </div>
-          <span className="rounded-full bg-leaf px-3 py-1 text-xs font-semibold">● Active</span>
+          <span className="rounded-full bg-leaf px-3 py-1 text-xs font-semibold">
+            ● {t("Active")}
+          </span>
           <ChevronRight className="h-5 w-5" />
         </button>
         <div className="grid grid-cols-2 gap-3">
@@ -359,7 +379,7 @@ function HomeScreen({
                 </div>
                 <div className="flex flex-1 items-center justify-between pb-4">
                   <span className={cn("text-sm", j.status === "todo" && "text-muted-foreground")}>
-                    {j.label}
+                    {t(j.label)}
                   </span>
                   {j.status === "done" && <Pill>Completed</Pill>}
                   {j.status === "next" && <Pill tone="ember">Next</Pill>}
@@ -374,15 +394,17 @@ function HomeScreen({
 }
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  const { t } = useLanguage();
   return (
     <div className="flex items-center justify-between gap-4 border-b py-3 text-sm last:border-0">
-      <span className="text-muted-foreground">{k}</span>
+      <span className="text-muted-foreground">{t(k)}</span>
       <span className="text-right font-semibold">{v}</span>
     </div>
   );
 }
 
 function ContractScreen({ back }: { back: () => void }) {
+  const { t } = useLanguage();
   const pct = Math.round((contract.deliveredKg / contract.contractedKg) * 100);
   return (
     <>
@@ -391,15 +413,18 @@ function ContractScreen({ back }: { back: () => void }) {
         <div className="rounded-2xl bg-hero p-5 text-primary-foreground">
           <div className="flex items-center justify-between">
             <span className="text-sm opacity-80">{contract.id}</span>
-            <span className="rounded-full bg-leaf px-3 py-1 text-xs font-semibold">Active</span>
+            <span className="rounded-full bg-leaf px-3 py-1 text-xs font-semibold">
+              {t("Active")}
+            </span>
           </div>
           <p className="mt-2 text-2xl font-extrabold">{contract.season}</p>
           <div className="mt-4 h-2 rounded-full bg-primary-foreground/20">
             <div className="h-2 rounded-full bg-gold" style={{ width: `${pct}%` }} />
           </div>
           <p className="mt-2 text-xs opacity-90">
-            {contract.deliveredKg.toLocaleString()} of {contract.contractedKg.toLocaleString()} kg
-            delivered ({pct}%)
+            {contract.deliveredKg.toLocaleString()} {t("of")}{" "}
+            {contract.contractedKg.toLocaleString()} kg
+            {t("delivered")} ({pct}%)
           </p>
         </div>
         <div className="rounded-2xl border bg-card px-4 shadow-card">
@@ -410,7 +435,7 @@ function ContractScreen({ back }: { back: () => void }) {
           <Row k="Expires" v={contract.expiresOn} />
         </div>
         <Button variant="outline" className="w-full rounded-xl">
-          Download contract (PDF)
+          {t("Download contract (PDF)")}
         </Button>
       </div>
     </>
@@ -426,12 +451,13 @@ function DeliveriesScreen({
   list: typeof seedDeliveries;
   onBook: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <>
       <SubHeader title="Deliveries" onBack={back} />
       <div className="space-y-3 px-5">
         <Button onClick={onBook} className="w-full rounded-xl" size="lg">
-          <Truck /> Request a delivery slot
+          <Truck /> {t("Request a delivery slot")}
         </Button>
         {list.map((d) => (
           <div key={d.id} className="rounded-2xl border bg-card p-4 shadow-card">
@@ -449,7 +475,7 @@ function DeliveriesScreen({
               {d.date} • {d.slot}
             </p>
             <p className="text-sm text-muted-foreground">
-              {d.bales} bales • {d.vehicle} • {d.depot}
+              {d.bales} {t("bales")} • {d.vehicle} • {d.depot}
             </p>
           </div>
         ))}
@@ -459,15 +485,18 @@ function DeliveriesScreen({
 }
 
 function PaymentsScreen({ back }: { back: () => void }) {
+  const { t } = useLanguage();
   const paid = payments.filter((p) => p.status === "Paid").reduce((s, p) => s + p.amount, 0);
   return (
     <>
       <SubHeader title="Payments" onBack={back} />
       <div className="space-y-3 px-5">
         <div className="rounded-2xl bg-hero p-5 text-primary-foreground">
-          <p className="text-sm opacity-80">Total paid this season</p>
+          <p className="text-sm opacity-80">{t("Total paid this season")}</p>
           <p className="text-3xl font-extrabold">{money(paid)}</p>
-          <p className="mt-1 text-xs opacity-80">Into {me.bank}</p>
+          <p className="mt-1 text-xs opacity-80">
+            {t("Into")} {me.bank}
+          </p>
         </div>
         {payments.map((p) => (
           <div
@@ -490,6 +519,7 @@ function PaymentsScreen({ back }: { back: () => void }) {
 }
 
 function BalesScreen({ back }: { back: () => void }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState<string | null>(myBales[0]!.id);
   return (
     <>
@@ -505,7 +535,7 @@ function BalesScreen({ back }: { back: () => void }) {
               <div className="min-w-0 flex-1">
                 <p className="font-bold">{b.id}</p>
                 <p className="text-xs text-muted-foreground">
-                  {b.weightKg} kg • Grade {b.grade} • ${b.pricePerKg.toFixed(2)}/kg
+                  {b.weightKg} kg • {t("Grade")} {b.grade} • ${b.pricePerKg.toFixed(2)}/kg
                 </p>
               </div>
               <Pill tone={b.status === "In Transit" ? "ember" : "green"}>{b.status}</Pill>
@@ -515,12 +545,12 @@ function BalesScreen({ back }: { back: () => void }) {
                 {b.history.map((h) => (
                   <div key={h.label} className="flex items-center gap-2 py-1.5 text-sm">
                     <CircleCheck className="h-4 w-4 text-primary" />
-                    <span className="flex-1">{h.label}</span>
+                    <span className="flex-1">{t(h.label)}</span>
                     <span className="text-xs text-muted-foreground">{h.at.split(", ")[1]}</span>
                   </div>
                 ))}
                 <p className="mt-2 text-sm font-semibold">
-                  Value: {money(b.weightKg * b.pricePerKg)}
+                  {t("Value")}: {money(b.weightKg * b.pricePerKg)}
                 </p>
               </div>
             )}
@@ -532,6 +562,7 @@ function BalesScreen({ back }: { back: () => void }) {
 }
 
 function StatementsScreen({ back }: { back: () => void }) {
+  const { t } = useLanguage();
   return (
     <>
       <SubHeader title="Sales Statements" onBack={back} />
@@ -544,17 +575,19 @@ function StatementsScreen({ back }: { back: () => void }) {
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
               <div className="rounded-xl bg-muted p-2">
-                <p className="font-bold text-sm">{s.bales}</p>Bales
+                <p className="font-bold text-sm">{s.bales}</p>
+                {t("Bales")}
               </div>
               <div className="rounded-xl bg-muted p-2">
                 <p className="font-bold text-sm">{s.kg}</p>kg
               </div>
               <div className="rounded-xl bg-primary-soft p-2 text-primary">
-                <p className="font-bold text-sm">{money(s.net)}</p>Net
+                <p className="font-bold text-sm">{money(s.net)}</p>
+                {t("Net")}
               </div>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Gross {money(s.gross)} − deductions {money(s.deductions)}
+              {t("Gross")} {money(s.gross)} − {t("deductions")} {money(s.deductions)}
             </p>
           </div>
         ))}
@@ -576,6 +609,7 @@ function ProfileScreen({
   farms: AccountFarm[];
   onFarmsChange: (farms: AccountFarm[]) => void;
 }) {
+  const { t } = useLanguage();
   const [addingFarm, setAddingFarm] = useState(false);
   const [farmDraft, setFarmDraft] = useState({
     farmName: "",
@@ -620,7 +654,9 @@ function ProfileScreen({
             <p className="text-lg font-bold">
               {farmer ? `${farmer.first_name} ${farmer.surname}` : me.name}
             </p>
-            <p className="text-sm text-muted-foreground">Farmer #{farmer?.farmer_ref ?? me.id}</p>
+            <p className="text-sm text-muted-foreground">
+              {t("Farmer")} #{farmer?.farmer_ref ?? me.id}
+            </p>
           </div>
         </div>
         <div className="rounded-2xl border bg-card px-4 shadow-card">
@@ -632,7 +668,7 @@ function ProfileScreen({
               <Row k="Phone" v={farmer.phone} />
               <Row k="Location" v={`${farmer.ward}, ${farmer.district}, ${farmer.province}`} />
               <Row k="Contracting company" v={farmer.contracting_company} />
-              <Row k="Status" v={farmer.status} />
+              <Row k="Status" v={t(farmer.status)} />
             </>
           ) : (
             <>
@@ -645,9 +681,9 @@ function ProfileScreen({
         </div>
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">My farms</h2>
+            <h2 className="font-semibold">{t("My farms")}</h2>
             <Button type="button" size="sm" onClick={() => setAddingFarm(true)}>
-              Add farm
+              {t("Add farm")}
             </Button>
           </div>
           {farms.map((farm) => (
@@ -660,7 +696,7 @@ function ProfileScreen({
                   </p>
                 </div>
                 {farm.is_primary ? (
-                  <span className="text-xs font-medium text-primary">Primary</span>
+                  <span className="text-xs font-medium text-primary">{t("Primary")}</span>
                 ) : (
                   <Button
                     type="button"
@@ -669,7 +705,7 @@ function ProfileScreen({
                     disabled={savingFarm}
                     onClick={() => void saveFarm(farm)}
                   >
-                    Make primary
+                    {t("Make primary")}
                   </Button>
                 )}
               </div>
@@ -692,7 +728,7 @@ function ProfileScreen({
                 ] as const
               ).map(([field, label]) => (
                 <label key={field} className="block space-y-1">
-                  <span className="text-sm font-medium">{label}</span>
+                  <span className="text-sm font-medium">{t(label)}</span>
                   <Input
                     value={farmDraft[field]}
                     onChange={(event) =>
@@ -709,7 +745,7 @@ function ProfileScreen({
               )}
               <div className="flex gap-2">
                 <Button type="submit" className="flex-1" disabled={savingFarm}>
-                  {savingFarm ? "Saving..." : "Save farm"}
+                  {savingFarm ? t("Saving...") : t("Save farm")}
                 </Button>
                 <Button
                   type="button"
@@ -717,7 +753,7 @@ function ProfileScreen({
                   onClick={() => setAddingFarm(false)}
                   disabled={savingFarm}
                 >
-                  Cancel
+                  {t("Cancel")}
                 </Button>
               </div>
             </form>
@@ -730,6 +766,7 @@ function ProfileScreen({
 
 function SettingsScreen({ back }: { back: () => void }) {
   const [sms, setSms] = useState(true);
+  const { t } = useLanguage();
   return (
     <>
       <SubHeader title="Settings" onBack={back} />
@@ -739,7 +776,7 @@ function SettingsScreen({ back }: { back: () => void }) {
             onClick={() => setSms(!sms)}
             className="flex w-full items-center justify-between py-3 text-sm"
           >
-            <span>SMS notifications</span>
+            <span>{t("SMS notifications")}</span>
             <span
               className={cn(
                 "h-6 w-11 rounded-full p-0.5 transition",
@@ -754,7 +791,7 @@ function SettingsScreen({ back }: { back: () => void }) {
               />
             </span>
           </button>
-          <Row k="Language" v="English" />
+          <Row k="Language" v={<LanguageSelector />} />
         </div>
       </div>
     </>
@@ -770,6 +807,7 @@ function NotificationsScreen({
   notes: typeof seedNotes;
   markAll: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <>
       <SubHeader
@@ -777,7 +815,7 @@ function NotificationsScreen({
         onBack={back}
         right={
           <button onClick={markAll} className="text-xs font-semibold text-primary">
-            Read all
+            {t("Read all")}
           </button>
         }
       />
@@ -791,10 +829,10 @@ function NotificationsScreen({
             )}
           >
             <div className="flex justify-between">
-              <p className="font-bold">{n.title}</p>
+              <p className="font-bold">{t(n.title)}</p>
               <span className="text-xs text-muted-foreground">{n.time}</span>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t(n.body)}</p>
           </div>
         ))}
       </div>
@@ -813,6 +851,7 @@ function Drawer({
   logout: () => void;
   unread: number;
 }) {
+  const { t } = useLanguage();
   const items: { s: Screen; label: string; icon: typeof Home }[] = [
     { s: "home", label: "Home", icon: Home },
     { s: "profile", label: "My Profile", icon: User },
@@ -828,13 +867,13 @@ function Drawer({
     <div className="absolute inset-0 z-20 flex">
       <div className="flex w-[85%] flex-col overflow-y-auto bg-card p-5 animate-in slide-in-from-left">
         <div className="flex justify-end">
-          <button onClick={close} aria-label="Close menu">
+          <button onClick={close} aria-label={t("Close menu")}>
             <X className="h-6 w-6" />
           </button>
         </div>
         <div className="flex items-center gap-3">
           <img src={appIcon} alt="" className="h-10 w-10 object-contain" />
-          <p className="text-sm font-bold text-primary-deep">Tobacco Contract System</p>
+          <p className="text-sm font-bold text-primary-deep">{t("Tobacco Contract System")}</p>
         </div>
         <div className="my-5 flex items-center gap-3 border-b pb-5">
           <div className="grid h-12 w-12 place-items-center rounded-full bg-primary text-primary-foreground">
@@ -842,7 +881,9 @@ function Drawer({
           </div>
           <div>
             <p className="font-bold">{me.name}</p>
-            <p className="text-xs text-muted-foreground">Farmer #{me.id}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("Farmer")} #{me.id}
+            </p>
           </div>
         </div>
         <ul className="space-y-1">
@@ -853,7 +894,7 @@ function Drawer({
                 className="flex w-full items-center gap-4 rounded-xl px-3 py-2.5 text-left hover:bg-primary-soft"
               >
                 <Icon className="h-5 w-5 text-primary" />
-                <span className="flex-1">{label}</span>
+                <span className="flex-1">{t(label)}</span>
                 {s === "notifications" && unread > 0 && (
                   <span className="grid h-5 w-5 place-items-center rounded-full bg-destructive text-xs text-destructive-foreground">
                     {unread}
@@ -867,10 +908,10 @@ function Drawer({
           onClick={logout}
           className="mt-4 flex items-center gap-4 border-t px-3 pt-4 text-ember"
         >
-          <LogOut className="h-5 w-5" /> Logout
+          <LogOut className="h-5 w-5" /> {t("Logout")}
         </button>
       </div>
-      <button className="flex-1 bg-foreground/40" onClick={close} aria-label="Close menu" />
+      <button className="flex-1 bg-foreground/40" onClick={close} aria-label={t("Close menu")} />
     </div>
   );
 }

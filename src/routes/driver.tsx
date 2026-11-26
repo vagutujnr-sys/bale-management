@@ -6,10 +6,13 @@ import { InstallAppButton } from "@/components/install-app-button";
 import { MobileAccountAccess } from "@/components/mobile/account-access";
 import { DriverOnboarding } from "@/components/mobile/driver-onboarding";
 import { DeviceFrame, MobileDeviceGate } from "@/components/mobile/shell";
+import { LanguageSelector } from "@/components/mobile/language-selector";
 import { Button } from "@/components/ui/button";
 import { pwaLinks, pwaMeta } from "@/lib/pwa";
 import type { AccountSignInResult, LinkedAccountProfile } from "@/lib/account-auth";
 import { getSupabaseClient } from "@/lib/supabase";
+import { LanguageProvider } from "@/lib/language";
+import { useLanguage } from "@/lib/language-context";
 
 export const Route = createFileRoute("/driver")({
   head: () => ({
@@ -27,9 +30,18 @@ export const Route = createFileRoute("/driver")({
 });
 
 function DriverApp() {
+  return (
+    <LanguageProvider>
+      <DriverAppContent />
+    </LanguageProvider>
+  );
+}
+
+function DriverAppContent() {
   const [account, setAccount] = useState<LinkedAccountProfile | null>(null);
   const [warning, setWarning] = useState("");
   const [deferred, setDeferred] = useState(false);
+  const { t } = useLanguage();
 
   const onAuthenticated = (result: AccountSignInResult) => {
     if (result.status === "linked") {
@@ -44,16 +56,23 @@ function DriverApp() {
         {account ? (
           account.driver ? (
             <main className="no-scrollbar flex-1 overflow-y-auto px-5 pb-8 pt-6">
+              <div className="mb-3 flex justify-end">
+                <LanguageSelector />
+              </div>
               <section className="space-y-4">
-                <h1 className="text-2xl font-bold">Driver/Transporter App</h1>
-                <p className="text-lg font-semibold">Welcome, {account.profile.displayName}</p>
-                <p className="text-sm text-muted-foreground">
-                  Driver licence: {account.driver.licence_number}
+                <h1 className="text-2xl font-bold">{t("Driver/Transporter App")}</h1>
+                <p className="text-lg font-semibold">
+                  {t("Welcome, {name}", { name: account.profile.displayName })}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Transporter ID: {account.driver.transporter_id}
+                  {t("Driver licence:")} {account.driver.licence_number}
                 </p>
-                <p className="text-sm text-muted-foreground">Status: {account.driver.status}</p>
+                <p className="text-sm text-muted-foreground">
+                  {t("Transporter ID:")} {account.driver.transporter_id}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {t("Status")}: {t(account.driver.status)}
+                </p>
                 {warning && (
                   <p role="status" className="text-sm text-amber-700">
                     {warning}
@@ -70,19 +89,22 @@ function DriverApp() {
                   }}
                 >
                   <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
+                  {t("Sign out")}
                 </Button>
               </section>
             </main>
           ) : deferred ? (
             <main className="no-scrollbar flex-1 overflow-y-auto">
               <section className="space-y-4 px-5 pt-6">
-                <h1 className="text-2xl font-bold">Profile setup saved</h1>
+                <div className="flex justify-end">
+                  <LanguageSelector />
+                </div>
+                <h1 className="text-2xl font-bold">{t("Profile setup saved")}</h1>
                 <p className="text-sm text-muted-foreground">
-                  Continue when you are ready. Your details are saved on this account.
+                  {t("Continue when you are ready. Your details are saved on this account.")}
                 </p>
                 <Button type="button" className="w-full" onClick={() => setDeferred(false)}>
-                  Continue setup
+                  {t("Continue setup")}
                 </Button>
                 <Button
                   type="button"
@@ -95,7 +117,7 @@ function DriverApp() {
                   }}
                 >
                   <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
+                  {t("Sign out")}
                 </Button>
               </section>
             </main>
@@ -121,7 +143,7 @@ function DriverApp() {
                 }}
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                Sign out
+                {t("Sign out")}
               </Button>
             </main>
           )
@@ -136,8 +158,8 @@ function DriverApp() {
           <div className="flex items-center gap-3">
             <img src={appIcon} alt="" className="h-10 w-10 object-contain" />
             <div>
-              <p className="font-semibold">Driver/Transporter App</p>
-              <p className="text-xs text-muted-foreground">Install for quick access</p>
+              <p className="font-semibold">{t("Driver/Transporter App")}</p>
+              <p className="text-xs text-muted-foreground">{t("Install for quick access")}</p>
             </div>
           </div>
           <div className="mt-4">
