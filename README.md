@@ -26,6 +26,10 @@ npm run dev
 
 Run the test suite with `npm test` and create a production build with `npm run build`.
 
+## Vercel deployment
+
+The production build uses Nitro's Vercel preset and emits Vercel Build Output API files in `.vercel/output`. In Vercel project settings, use `npm run build` as the build command and leave the Output Directory unset; do not configure the static `dist` directory.
+
 ## Data services
 
 The browser Supabase client uses `VITE_SUPABASE_URL` and a publishable key (or legacy anon key) from `.env`. The server auth bridge uses `SUPABASE_URL` (locally it can fall back to `VITE_SUPABASE_URL`) and `SUPABASE_SERVICE_ROLE_KEY`. Configure both as server runtime bindings in production. `SUPABASE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are server-only credentials; never expose them to browser code. The service-role key bypasses Row Level Security.
