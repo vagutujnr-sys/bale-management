@@ -57,6 +57,144 @@ export type LinkedAccountProfile = {
   completion?: number;
 };
 
+export type FarmerDashboard = {
+  seasonSummaries: FarmerSeasonSummary[];
+  contracts: FarmerContract[];
+  deliveries: FarmerDelivery[];
+  bales: FarmerBale[];
+  baleLocations: FarmerBaleLocation[];
+  qualityInspections: FarmerQualityInspection[];
+  balePrices: FarmerBalePrice[];
+  salesSheets: FarmerSalesSheet[];
+  salesSheetItems: FarmerSalesSheetItem[];
+  salesSheetAdjustments: FarmerSalesSheetAdjustment[];
+  paymentRequests: FarmerPaymentRequest[];
+  paymentTransactions: FarmerPaymentTransaction[];
+};
+
+type FarmerSeasonSummary = {
+  contract_id: string;
+  contract_ref: string;
+  season_year: number;
+  contracted_quantity_kg: number | string;
+  delivered_expected_kg: number | string;
+  received_kg: number | string;
+  accepted_kg: number | string;
+  purchased_kg: number | string;
+  contract_balance_kg: number | string;
+  paid_amount: number | string;
+  outstanding_payment_amount: number | string;
+};
+
+type FarmerContract = {
+  id: string;
+  contract_ref: string;
+  season_id: string;
+  contracted_quantity_kg: number | string;
+  expected_deliveries: number | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  payment_terms: string | null;
+  status: string;
+};
+
+type FarmerDelivery = {
+  id: string;
+  delivery_ref: string;
+  contract_id: string;
+  season_id: string;
+  expected_bale_count: number | null;
+  expected_weight_kg: number | string | null;
+  delivery_date: string | null;
+  status: string;
+};
+
+type FarmerBale = {
+  id: string;
+  bale_ref: string;
+  delivery_id: string | null;
+  contract_id: string | null;
+  season_id: string;
+  bale_type: string | null;
+  received_weight_kg: number | string | null;
+  receiving_station: string | null;
+  received_at: string | null;
+};
+
+type FarmerBaleLocation = {
+  bale_id: string;
+  location_ref: string | null;
+  location_updated_at: string | null;
+};
+
+type FarmerQualityInspection = {
+  bale_id: string;
+  inspection_number: number;
+  grade: string | null;
+  moisture_percent: number | string | null;
+  colour: string | null;
+  leaf_type: string | null;
+  qc_decision: string | null;
+  inspected_at: string | null;
+};
+
+type FarmerBalePrice = {
+  bale_id: string;
+  final_price_per_kg: number | string | null;
+  payable_weight_kg: number | string | null;
+  purchase_value: number | string | null;
+  set_at: string | null;
+  locked_at: string | null;
+};
+
+type FarmerSalesSheet = {
+  id: string;
+  sales_sheet_ref: string;
+  contract_id: string | null;
+  delivery_id: string | null;
+  gross_amount: number | string;
+  status: string;
+  created_at: string;
+};
+
+type FarmerSalesSheetItem = {
+  sales_sheet_id: string;
+  bale_id: string;
+  weight_kg: number | string;
+  grade: string;
+  price_per_kg: number | string;
+  amount: number | string;
+};
+
+type FarmerSalesSheetAdjustment = {
+  sales_sheet_id: string;
+  adjustment_type: string;
+  category: string;
+  description: string | null;
+  amount: number | string;
+  approved_at: string | null;
+};
+
+type FarmerPaymentRequest = {
+  id: string;
+  payment_ref: string;
+  sales_sheet_id: string | null;
+  amount: number | string;
+  payment_method: string | null;
+  collection_point: string | null;
+  status: string;
+  requested_at: string;
+};
+
+type FarmerPaymentTransaction = {
+  payment_request_id: string;
+  payment_reference: string | null;
+  processed_amount: number | string | null;
+  processed_at: string | null;
+  collection_point: string | null;
+  collected_at: string | null;
+};
+
 export type AccountSignInResult = LinkedAccountProfile | { status: "unlinked" };
 
 export type DriverRegistrationOutcome = {
@@ -162,6 +300,16 @@ async function loadAccountProfile(accessToken: string): Promise<AccountSignInRes
 export async function refreshAccountProfile(): Promise<AccountSignInResult> {
   const token = await requireSessionToken();
   return loadAccountProfile(token);
+}
+
+export async function loadFarmerDashboard(): Promise<FarmerDashboard> {
+  const token = await requireSessionToken();
+  const response = await fetch("/api/auth/farmer-dashboard", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const result = (await response.json()) as FarmerDashboard & { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Your farmer records could not be loaded.");
+  return result;
 }
 
 export async function signInWithPhonePin(

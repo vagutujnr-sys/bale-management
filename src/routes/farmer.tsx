@@ -1,17 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Bell,
   BarChart3,
   Boxes,
-  Calendar,
+  CalendarDays,
   ChevronRight,
-  CircleCheck,
   FileText,
   Home,
   LogOut,
   MoreHorizontal,
-  Package,
   Scale,
   Settings,
   Sprout,
@@ -26,9 +24,6 @@ import {
   BottomNav,
   DeviceFrame,
   MobileDeviceGate,
-  Pill,
-  SectionTitle,
-  StatCard,
   SubHeader,
   type Tab,
 } from "@/components/mobile/shell";
@@ -39,20 +34,14 @@ import { LanguageProvider } from "@/lib/language";
 import { useLanguage } from "@/lib/language-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  bales,
-  contract,
-  deliveries as seedDeliveries,
-  farmers,
-  journey,
-  money,
-  notifications as seedNotes,
-  payments,
-  salesSheets,
-} from "@/data/mock";
 import { getSupabaseClient } from "@/lib/supabase";
-import { saveAccountFarm, type AccountFarm, type LinkedAccountProfile } from "@/lib/account-auth";
-import { cn } from "@/lib/utils";
+import {
+  loadFarmerDashboard,
+  saveAccountFarm,
+  type AccountFarm,
+  type FarmerDashboard,
+  type LinkedAccountProfile,
+} from "@/lib/account-auth";
 
 export const Route = createFileRoute("/farmer")({
   head: () => ({
@@ -93,9 +82,6 @@ const tabs: Tab<Screen>[] = [
   { key: "payments", label: "Payments", icon: Wallet },
   { key: "more", label: "More", icon: MoreHorizontal },
 ];
-const me = farmers[0]!;
-const myBales = bales.filter((b) => b.farmerId === me.id);
-
 function FarmerApp() {
   return (
     <LanguageProvider>
@@ -109,10 +95,39 @@ function FarmerAppContent() {
   const [account, setAccount] = useState<LinkedAccountProfile | null>(null);
   const [screen, setScreen] = useState<Screen>("home");
   const [drawer, setDrawer] = useState(false);
-  const [notes, setNotes] = useState(seedNotes);
-  const [deliveries, setDeliveries] = useState(seedDeliveries);
-  const unread = notes.filter((n) => n.unread).length;
-  const { t } = useLanguage();
+  const [dashboard, setDashboard] = useState<FarmerDashboard | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState("");
+
+  useEffect(() => {
+    if (!signedIn) {
+      setDashboard(null);
+      setDashboardError("");
+      return;
+    }
+
+    let active = true;
+    setDashboardLoading(true);
+    setDashboardError("");
+    void loadFarmerDashboard()
+      .then((records) => {
+        if (active) setDashboard(records);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setDashboardError(
+            error instanceof Error ? error.message : "Your farmer records could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setDashboardLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [signedIn, account?.farmer?.id]);
 
   const go = (s: Screen) => {
     setDrawer(false);
@@ -131,28 +146,21 @@ function FarmerAppContent() {
               if (result.status === "linked") {
                 setAccount(result);
                 setSignedIn(true);
-                setScreen(result.farmer ? "home" : "onboarding");
+                setScreen("home");
               }
             }}
           />
         ) : (
           <>
-            <main className="no-scrollbar flex-1 overflow-y-auto pb-6">
-              <p
-                role="status"
-                className="mx-5 mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-              >
-                {t(
-                  "Your profile is live. Contract, delivery, bale, statement, and payment screens still show demo data.",
-                )}
-              </p>
+            <main className="no-scrollbar min-h-0 flex-1 overflow-y-auto pb-6">
               {screen === "home" && (
                 <HomeScreen
                   go={go}
-                  unread={unread}
                   farmer={account?.farmer}
-                  completion={account?.completion}
-                  needsOnboarding={!account?.farmer}
+                  displayName={account?.profile.displayName}
+                  dashboard={dashboard}
+                  dashboardLoading={dashboardLoading}
+                  dashboardError={dashboardError}
                 />
               )}
               {screen === "onboarding" && account && (
@@ -168,47 +176,79 @@ function FarmerAppContent() {
                   }}
                 />
               )}
-              {screen === "contract" && <ContractScreen back={() => go("home")} />}
-              {screen === "deliveries" && (
-                <DeliveriesScreen
+              {screen === "contract" && (
+                <LiveDataScreen
+                  section="contract"
+                  title="My Contract"
                   back={() => go("home")}
-                  list={deliveries}
-                  onBook={() =>
-                    setDeliveries((d) => [
-                      {
-                        id: `DLV-${1183 + d.length}`,
-                        date: "26 Nov 2026",
-                        slot: "08:00 – 10:00",
-                        bales: 10,
-                        status: "Requested",
-                        vehicle: "AEZ 4471",
-                        depot: "Harare Floors",
-                      },
-                      ...d,
-                    ])
-                  }
+                  contractingCompany={account?.farmer?.contracting_company}
+                  dashboard={dashboard}
+                  loading={dashboardLoading}
+                  error={dashboardError}
                 />
               )}
-              {screen === "payments" && <PaymentsScreen back={() => go("home")} />}
-              {screen === "profile" && (
+              {screen === "deliveries" && (
+                <LiveDataScreen
+                  section="deliveries"
+                  title="Deliveries"
+                  back={() => go("home")}
+                  dashboard={dashboard}
+                  loading={dashboardLoading}
+                  error={dashboardError}
+                />
+              )}
+              {screen === "payments" && (
+                <LiveDataScreen
+                  section="payments"
+                  title="Payments"
+                  back={() => go("home")}
+                  dashboard={dashboard}
+                  loading={dashboardLoading}
+                  error={dashboardError}
+                />
+              )}
+              {screen === "profile" && account && (
                 <ProfileScreen
                   back={() => go("home")}
+                  profile={account.profile}
                   farmer={account?.farmer}
                   completion={account?.completion}
                   farms={account?.farms ?? []}
+                  onSetupProfile={() => go("onboarding")}
                   onFarmsChange={(farms) =>
                     setAccount((current) => (current ? { ...current, farms } : current))
                   }
                 />
               )}
-              {screen === "bales" && <BalesScreen back={() => go("home")} />}
-              {screen === "statements" && <StatementsScreen back={() => go("home")} />}
+              {screen === "bales" && (
+                <LiveDataScreen
+                  section="bales"
+                  title="Bale Tracking"
+                  back={() => go("home")}
+                  dashboard={dashboard}
+                  loading={dashboardLoading}
+                  error={dashboardError}
+                />
+              )}
+              {screen === "statements" && (
+                <LiveDataScreen
+                  section="statements"
+                  title="Sales Statements"
+                  back={() => go("home")}
+                  dashboard={dashboard}
+                  loading={dashboardLoading}
+                  error={dashboardError}
+                />
+              )}
               {screen === "settings" && <SettingsScreen back={() => go("home")} />}
               {screen === "notifications" && (
-                <NotificationsScreen
+                <LiveDataScreen
+                  section="notifications"
+                  title="Notifications"
                   back={() => go("home")}
-                  notes={notes}
-                  markAll={() => setNotes((n) => n.map((x) => ({ ...x, unread: false })))}
+                  dashboard={dashboard}
+                  loading={dashboardLoading}
+                  error={dashboardError}
                 />
               )}
             </main>
@@ -219,10 +259,11 @@ function FarmerAppContent() {
                 onChange={go}
               />
             )}
-            {drawer && (
+            {drawer && account && (
               <Drawer
                 go={go}
-                unread={unread}
+                profile={account.profile}
+                farmer={account.farmer}
                 close={() => setDrawer(false)}
                 logout={() => {
                   void getSupabaseClient()?.auth.signOut();
@@ -242,25 +283,118 @@ function FarmerAppContent() {
 
 function HomeScreen({
   go,
-  unread,
   farmer,
-  completion,
-  needsOnboarding,
+  displayName,
+  dashboard,
+  dashboardLoading,
+  dashboardError,
 }: {
   go: (s: Screen) => void;
-  unread: number;
   farmer?: LinkedAccountProfile["farmer"] | undefined;
-  completion?: number | undefined;
-  needsOnboarding: boolean;
+  displayName?: string;
+  dashboard: FarmerDashboard | null;
+  dashboardLoading: boolean;
+  dashboardError: string;
 }) {
   const { t } = useLanguage();
   const hour = new Date().getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const farmerName = farmer ? `${farmer.first_name} ${farmer.surname}` : me.name;
+  const farmerName = farmer
+    ? `${farmer.first_name} ${farmer.surname}`
+    : (displayName ?? t("Farmer"));
+  const activeContract =
+    dashboard?.contracts.find((contract) =>
+      ["active", "approved", "signed"].includes(contract.status.toLowerCase()),
+    ) ?? dashboard?.contracts[0];
+  const seasonSummary =
+    dashboard?.seasonSummaries.find((summary) => summary.contract_id === activeContract?.id) ??
+    dashboard?.seasonSummaries[0];
+  const latestInspection = [...(dashboard?.qualityInspections ?? [])].sort(
+    (left, right) => activityTimestamp(right.inspected_at) - activityTimestamp(left.inspected_at),
+  )[0];
+  const latestPayment = [...(dashboard?.paymentTransactions ?? [])]
+    .filter((payment) => payment.processed_amount !== null)
+    .sort(
+      (left, right) =>
+        activityTimestamp(right.processed_at ?? right.collected_at) -
+        activityTimestamp(left.processed_at ?? left.collected_at),
+    )[0];
+  const nextDelivery = [...(dashboard?.deliveries ?? [])]
+    .filter((delivery) => {
+      if (!delivery.delivery_date) return false;
+      const status = delivery.status.toLowerCase();
+      return (
+        delivery.delivery_date.slice(0, 10) >= new Date().toISOString().slice(0, 10) &&
+        !["cancelled", "completed", "delivered"].includes(status)
+      );
+    })
+    .sort((left, right) => (left.delivery_date ?? "").localeCompare(right.delivery_date ?? ""))[0];
+  const stats = [
+    {
+      icon: Sprout,
+      label: "Bales Delivered",
+      screen: "bales" as const,
+      value: dashboardLoading ? t("Loading...") : dashboard ? String(dashboard.bales.length) : "—",
+      color: "text-primary",
+    },
+    {
+      icon: Scale,
+      label: "Latest Grade",
+      screen: "bales" as const,
+      value: dashboardLoading ? t("Loading...") : latestInspection?.grade || "—",
+      color: "text-gold",
+    },
+    {
+      icon: Wallet,
+      label: "Last Payment",
+      screen: "payments" as const,
+      value: dashboardLoading
+        ? t("Loading...")
+        : latestPayment
+          ? formatUsd(latestPayment.processed_amount)
+          : "—",
+      color: "text-primary",
+    },
+    {
+      icon: CalendarDays,
+      label: "Next Delivery",
+      screen: "deliveries" as const,
+      value: dashboardLoading
+        ? t("Loading...")
+        : nextDelivery?.delivery_date
+          ? formatShortDate(nextDelivery.delivery_date)
+          : "—",
+      color: "text-primary",
+    },
+  ];
+  const journey = [
+    { label: "Farmer Registration", completed: Boolean(farmer) },
+    {
+      label: "Contract Approval",
+      completed: Boolean(
+        dashboard?.contracts.some((contract) =>
+          ["active", "approved", "signed"].includes(contract.status.toLowerCase()),
+        ),
+      ),
+    },
+    { label: "Delivery Scheduled", completed: Boolean(dashboard?.deliveries.length) },
+    { label: "Bale Reception & Weighing", completed: Boolean(dashboard?.bales.length) },
+    {
+      label: "Grading & Pricing",
+      completed: Boolean(dashboard?.qualityInspections.length || dashboard?.balePrices.length),
+    },
+    {
+      label: "Purchase & Payment",
+      completed: Boolean(dashboard?.salesSheets.length || dashboard?.paymentTransactions.length),
+    },
+  ];
+  let nextJourneyStep = true;
   return (
     <>
+      <div className="sticky top-0 z-10 bg-field">
+        <AppHeader appName="Tobacco Contract System" onBell={() => go("notifications")} />
+      </div>
       <div className="bg-field pb-6">
-        <AppHeader appName="Farmer App" unread={unread} onBell={() => go("notifications")} />
         <div className="px-5 pt-6">
           <p className="text-muted-foreground">{t(greet)},</p>
           <h1 className="text-3xl font-extrabold text-primary-deep">{farmerName}</h1>
@@ -271,126 +405,118 @@ function HomeScreen({
           </p>
         </div>
       </div>
-      <div className="space-y-5 px-5">
-        {needsOnboarding && (
-          <button
-            type="button"
-            onClick={() => go("onboarding")}
-            className="-mt-2 flex w-full items-center justify-between rounded-2xl border bg-card p-4 text-left shadow-card"
-          >
-            <span>
-              <span className="block font-semibold">
-                {t("Finish setting up your farmer profile")}
-              </span>
-              <span className="mt-1 block text-sm text-muted-foreground">
-                {t("Add your farm and grower details when you are ready.")}
-              </span>
-            </span>
-            <ChevronRight className="h-5 w-5 shrink-0" />
-          </button>
+      <div className="space-y-6 px-5">
+        {dashboardLoading && (
+          <p className="text-sm text-muted-foreground">{t("Loading your records...")}</p>
         )}
-        {farmer && (
-          <button
-            type="button"
-            onClick={() => go("profile")}
-            className="-mt-2 w-full rounded-2xl border bg-card p-4 text-left shadow-card"
+        {dashboardError && (
+          <p
+            role="alert"
+            className="rounded-xl border border-destructive/30 p-3 text-sm text-destructive"
           >
-            <div className="flex items-center justify-between text-sm font-semibold">
-              <span>{t("Profile completion")}</span>
-              <span>{completion ?? 0}%</span>
-            </div>
-            <div
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={completion ?? 0}
-              className="mt-2 h-2 overflow-hidden rounded-full bg-muted"
-            >
-              <div
-                className="h-full rounded-full bg-primary"
-                style={{ width: `${completion ?? 0}%` }}
-              />
-            </div>
-          </button>
+            {dashboardError}
+          </p>
         )}
         <button
+          type="button"
           onClick={() => go("contract")}
-          className="-mt-2 flex w-full items-center gap-4 rounded-2xl bg-hero p-5 text-left text-primary-foreground shadow-card"
+          className="-mt-8 flex w-full items-center gap-4 rounded-[30px] bg-primary-deep p-6 text-left text-primary-foreground shadow-card transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <FileText className="h-9 w-9 shrink-0" />
+          <FileText aria-hidden="true" className="h-12 w-12 shrink-0" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm opacity-80">{t("My Contract")}</p>
-            <p className="text-2xl font-extrabold">{contract.season}</p>
+            <p className="text-sm text-primary-foreground/75">{t("My Contract")}</p>
+            <p className="mt-1 truncate text-2xl font-extrabold">
+              {seasonSummary
+                ? `${seasonSummary.season_year} ${t("Season")}`
+                : (activeContract?.contract_ref ?? t("No contract linked"))}
+            </p>
           </div>
-          <span className="rounded-full bg-leaf px-3 py-1 text-xs font-semibold">
-            ● {t("Active")}
+          <span className="rounded-full bg-primary px-3 py-1 text-sm font-semibold">
+            {activeContract ? t(titleCase(activeContract.status)) : t("How to apply")}
           </span>
-          <ChevronRight className="h-5 w-5" />
+          <ChevronRight aria-hidden="true" className="h-6 w-6 shrink-0" />
         </button>
         <div className="grid grid-cols-2 gap-3">
-          <StatCard
-            icon={Sprout}
-            value={myBales.length + 8}
-            label="Bales Delivered"
-            onClick={() => go("bales")}
-          />
-          <StatCard
-            icon={Scale}
-            value="A1"
-            label="Top Grade"
-            tone="gold"
-            onClick={() => go("bales")}
-          />
-          <StatCard
-            icon={Wallet}
-            value="$750.00"
-            label="Last Payment"
-            onClick={() => go("payments")}
-          />
-          <StatCard
-            icon={Calendar}
-            value="12 Nov"
-            label="Next Delivery"
-            onClick={() => go("deliveries")}
-          />
+          {stats.map((stat) => (
+            <button
+              type="button"
+              key={stat.label}
+              onClick={() => go(stat.screen)}
+              className="flex min-h-28 items-center gap-3 rounded-3xl border bg-card p-4 text-left shadow-card"
+            >
+              <stat.icon aria-hidden="true" className={`h-9 w-9 shrink-0 ${stat.color}`} />
+              <span className="min-w-0">
+                <span className="block truncate text-xl font-extrabold">{stat.value}</span>
+                <span className="mt-1 block text-sm leading-tight text-muted-foreground">
+                  {t(stat.label)}
+                </span>
+              </span>
+            </button>
+          ))}
         </div>
-        <div>
-          <SectionTitle title="My Tobacco Journey" />
-          <ol className="space-y-0">
-            {journey.map((j, i) => (
-              <li key={j.label} className="flex items-stretch gap-3">
-                <div className="flex flex-col items-center">
-                  <span
-                    className={cn(
-                      "mt-1 h-5 w-5 shrink-0 rounded-full border-2",
-                      j.status === "done" && "border-primary bg-primary",
-                      j.status === "next" && "border-ember bg-ember-soft",
-                      j.status === "todo" && "border-border",
-                    )}
-                  />
-                  {i < journey.length - 1 && (
-                    <span
-                      className={cn(
-                        "w-0.5 flex-1",
-                        j.status === "done" ? "bg-primary" : "bg-border",
-                      )}
-                    />
-                  )}
-                </div>
-                <div className="flex flex-1 items-center justify-between pb-4">
-                  <span className={cn("text-sm", j.status === "todo" && "text-muted-foreground")}>
-                    {t(j.label)}
-                  </span>
-                  {j.status === "done" && <Pill>Completed</Pill>}
-                  {j.status === "next" && <Pill tone="ember">Next</Pill>}
-                </div>
-              </li>
-            ))}
-          </ol>
-        </div>
+        {!dashboardLoading && !dashboardError && (
+          <section aria-labelledby="farmer-journey-title" className="pb-4">
+            <h2 id="farmer-journey-title" className="mb-4 text-lg font-bold">
+              {t("My Tobacco Journey")}
+            </h2>
+            <div>
+              {journey.map((stage, index) => {
+                const isNext = !stage.completed && nextJourneyStep;
+                if (isNext) nextJourneyStep = false;
+                return (
+                  <div key={stage.label} className="flex min-h-12 gap-3">
+                    <div className="flex w-7 shrink-0 flex-col items-center">
+                      <span
+                        className={`mt-1 h-5 w-5 rounded-full border-2 ${
+                          stage.completed
+                            ? "border-primary bg-primary"
+                            : isNext
+                              ? "border-primary bg-background"
+                              : "border-muted-foreground/30 bg-background"
+                        }`}
+                      />
+                      {index < journey.length - 1 && <span className="w-0.5 flex-1 bg-border" />}
+                    </div>
+                    <div className="flex min-h-12 flex-1 items-start justify-between gap-2 pb-3">
+                      <span className="pt-1 text-sm font-medium">{t(stage.label)}</span>
+                      <span
+                        className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
+                          stage.completed
+                            ? "bg-primary-soft text-primary-deep"
+                            : isNext
+                              ? "bg-muted text-muted-foreground"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {t(stage.completed ? "Completed" : isNext ? "Next" : "Pending")}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </div>
     </>
   );
+}
+
+function activityTimestamp(date: string | null | undefined) {
+  if (!date) return 0;
+  const timestamp = new Date(date).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function formatShortDate(value: string) {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(date);
+}
+
+function titleCase(value: string) {
+  return value.replace(/[_-]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
@@ -403,210 +529,281 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function ContractScreen({ back }: { back: () => void }) {
-  const { t } = useLanguage();
-  const pct = Math.round((contract.deliveredKg / contract.contractedKg) * 100);
-  return (
-    <>
-      <SubHeader title="My Contract" onBack={back} />
-      <div className="space-y-4 px-5">
-        <div className="rounded-2xl bg-hero p-5 text-primary-foreground">
-          <div className="flex items-center justify-between">
-            <span className="text-sm opacity-80">{contract.id}</span>
-            <span className="rounded-full bg-leaf px-3 py-1 text-xs font-semibold">
-              {t("Active")}
-            </span>
-          </div>
-          <p className="mt-2 text-2xl font-extrabold">{contract.season}</p>
-          <div className="mt-4 h-2 rounded-full bg-primary-foreground/20">
-            <div className="h-2 rounded-full bg-gold" style={{ width: `${pct}%` }} />
-          </div>
-          <p className="mt-2 text-xs opacity-90">
-            {contract.deliveredKg.toLocaleString()} {t("of")}{" "}
-            {contract.contractedKg.toLocaleString()} kg
-            {t("delivered")} ({pct}%)
-          </p>
-        </div>
-        <div className="rounded-2xl border bg-card px-4 shadow-card">
-          <Row k="Variety" v={contract.variety} />
-          <Row k="Hectares" v={`${contract.hectares} ha`} />
-          <Row k="Inputs advance" v={money(contract.inputsAdvance)} />
-          <Row k="Signed on" v={contract.signedOn} />
-          <Row k="Expires" v={contract.expiresOn} />
-        </div>
-        <Button variant="outline" className="w-full rounded-xl">
-          {t("Download contract (PDF)")}
-        </Button>
-      </div>
-    </>
-  );
-}
+type FarmerDataSection =
+  "contract" | "deliveries" | "payments" | "bales" | "statements" | "notifications";
 
-function DeliveriesScreen({
+function LiveDataScreen({
+  section,
+  title,
   back,
-  list,
-  onBook,
+  contractingCompany,
+  dashboard,
+  loading,
+  error,
 }: {
+  section: FarmerDataSection;
+  title: string;
   back: () => void;
-  list: typeof seedDeliveries;
-  onBook: () => void;
+  contractingCompany?: string;
+  dashboard: FarmerDashboard | null;
+  loading: boolean;
+  error: string;
 }) {
   const { t } = useLanguage();
-  return (
-    <>
-      <SubHeader title="Deliveries" onBack={back} />
-      <div className="space-y-3 px-5">
-        <Button onClick={onBook} className="w-full rounded-xl" size="lg">
-          <Truck /> {t("Request a delivery slot")}
-        </Button>
-        {list.map((d) => (
-          <div key={d.id} className="rounded-2xl border bg-card p-4 shadow-card">
-            <div className="flex items-center justify-between">
-              <p className="font-bold">{d.id}</p>
-              <Pill
-                tone={
-                  d.status === "Completed" ? "green" : d.status === "Scheduled" ? "ember" : "gold"
-                }
-              >
-                {d.status}
-              </Pill>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {d.date} • {d.slot}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {d.bales} {t("bales")} • {d.vehicle} • {d.depot}
-            </p>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
+  const contracts = dashboard?.contracts ?? [];
+  const deliveries = dashboard?.deliveries ?? [];
+  const bales = dashboard?.bales ?? [];
+  const salesSheets = dashboard?.salesSheets ?? [];
+  const paymentRequests = dashboard?.paymentRequests ?? [];
+  const hasRecords =
+    section === "contract"
+      ? contracts.length > 0
+      : section === "deliveries"
+        ? deliveries.length > 0
+        : section === "bales"
+          ? bales.length > 0
+          : section === "statements"
+            ? salesSheets.length > 0
+            : section === "payments"
+              ? paymentRequests.length > 0
+              : false;
 
-function PaymentsScreen({ back }: { back: () => void }) {
-  const { t } = useLanguage();
-  const paid = payments.filter((p) => p.status === "Paid").reduce((s, p) => s + p.amount, 0);
   return (
     <>
-      <SubHeader title="Payments" onBack={back} />
-      <div className="space-y-3 px-5">
-        <div className="rounded-2xl bg-hero p-5 text-primary-foreground">
-          <p className="text-sm opacity-80">{t("Total paid this season")}</p>
-          <p className="text-3xl font-extrabold">{money(paid)}</p>
-          <p className="mt-1 text-xs opacity-80">
-            {t("Into")} {me.bank}
+      <SubHeader title={title} onBack={back} />
+      <div className="space-y-3 px-5 py-4">
+        {section === "contract" && (
+          <section className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+            <h2 className="font-semibold">{t("How to apply for a contract")}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {contractingCompany
+                ? t("Contact {company} or your local office to apply.", {
+                    company: contractingCompany,
+                  })
+                : t("Contact your contracting company or nearest local office to apply.")}
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t("Once linked to your account, your contract will appear here.")}
+            </p>
+          </section>
+        )}
+        {loading && (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {t("Loading your records...")}
           </p>
-        </div>
-        {payments.map((p) => (
-          <div
-            key={p.id}
-            className="flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-card"
+        )}
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-destructive/30 p-3 text-sm text-destructive"
           >
-            <Wallet className="h-8 w-8 shrink-0 text-primary" />
-            <div className="min-w-0 flex-1">
-              <p className="font-bold">{money(p.amount)}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {p.date} • {p.sheet}
-              </p>
-            </div>
-            <Pill tone={p.status === "Paid" ? "green" : "ember"}>{p.status}</Pill>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function BalesScreen({ back }: { back: () => void }) {
-  const { t } = useLanguage();
-  const [open, setOpen] = useState<string | null>(myBales[0]!.id);
-  return (
-    <>
-      <SubHeader title="Bale Tracking" onBack={back} />
-      <div className="space-y-3 px-5">
-        {myBales.map((b) => (
-          <div key={b.id} className="rounded-2xl border bg-card shadow-card">
-            <button
-              onClick={() => setOpen(open === b.id ? null : b.id)}
-              className="flex w-full items-center gap-3 p-4 text-left"
-            >
-              <Package className="h-7 w-7 shrink-0 text-gold" />
-              <div className="min-w-0 flex-1">
-                <p className="font-bold">{b.id}</p>
-                <p className="text-xs text-muted-foreground">
-                  {b.weightKg} kg • {t("Grade")} {b.grade} • ${b.pricePerKg.toFixed(2)}/kg
+            {error}
+          </p>
+        )}
+        {!loading && !error && section === "notifications" && (
+          <p className="py-6 text-center font-semibold">
+            {t("This section is not connected to live records yet.")}
+          </p>
+        )}
+        {!loading &&
+          !error &&
+          !hasRecords &&
+          section !== "notifications" &&
+          section !== "contract" && (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              {t("No live records are available yet.")}
+            </p>
+          )}
+        {!loading &&
+          !error &&
+          section === "contract" &&
+          contracts.map((contract) => {
+            const summary = dashboard?.seasonSummaries.find(
+              (item) => item.contract_id === contract.id,
+            );
+            return (
+              <section key={contract.id} className="rounded-2xl border bg-card px-4 shadow-card">
+                <p className="py-3 font-semibold">
+                  {contract.contract_ref} · {t(contract.status)}
                 </p>
-              </div>
-              <Pill tone={b.status === "In Transit" ? "ember" : "green"}>{b.status}</Pill>
-            </button>
-            {open === b.id && (
-              <div className="border-t px-4 py-3">
-                {b.history.map((h) => (
-                  <div key={h.label} className="flex items-center gap-2 py-1.5 text-sm">
-                    <CircleCheck className="h-4 w-4 text-primary" />
-                    <span className="flex-1">{t(h.label)}</span>
-                    <span className="text-xs text-muted-foreground">{h.at.split(", ")[1]}</span>
+                <Row k="Contracted quantity" v={formatKg(contract.contracted_quantity_kg)} />
+                {contract.expected_deliveries != null && (
+                  <Row k="Expected deliveries" v={contract.expected_deliveries} />
+                )}
+                {contract.starts_on && <Row k="Start date" v={formatDate(contract.starts_on)} />}
+                {contract.ends_on && <Row k="End date" v={formatDate(contract.ends_on)} />}
+                {summary && <Row k="Received quantity" v={formatKg(summary.received_kg)} />}
+              </section>
+            );
+          })}
+        {!loading &&
+          !error &&
+          section === "deliveries" &&
+          deliveries.map((delivery) => {
+            const receivedBales = bales.filter((bale) => bale.delivery_id === delivery.id).length;
+            return (
+              <section key={delivery.id} className="rounded-2xl border bg-card px-4 shadow-card">
+                <p className="py-3 font-semibold">
+                  {delivery.delivery_ref} · {t(delivery.status)}
+                </p>
+                {delivery.delivery_date && (
+                  <Row k="Delivery date" v={formatDate(delivery.delivery_date)} />
+                )}
+                {delivery.expected_bale_count != null && (
+                  <Row k="Expected bales" v={delivery.expected_bale_count} />
+                )}
+                <Row k="Bales received" v={receivedBales} />
+                {receivedBales > 0 && (
+                  <Row
+                    k="Received weight"
+                    v={formatKg(
+                      bales
+                        .filter((bale) => bale.delivery_id === delivery.id)
+                        .reduce((total, bale) => total + toNumber(bale.received_weight_kg), 0),
+                    )}
+                  />
+                )}
+                {delivery.expected_weight_kg != null && (
+                  <Row k="Expected weight" v={formatKg(delivery.expected_weight_kg)} />
+                )}
+              </section>
+            );
+          })}
+        {!loading &&
+          !error &&
+          section === "bales" &&
+          bales.map((bale) => {
+            const inspection = dashboard?.qualityInspections.find(
+              (item) => item.bale_id === bale.id,
+            );
+            const location = dashboard?.baleLocations.find((item) => item.bale_id === bale.id);
+            const price = dashboard?.balePrices.find((item) => item.bale_id === bale.id);
+            return (
+              <section key={bale.id} className="rounded-2xl border bg-card px-4 shadow-card">
+                <p className="py-3 font-semibold">{bale.bale_ref}</p>
+                {bale.received_weight_kg != null && (
+                  <Row k="Received weight" v={formatKg(bale.received_weight_kg)} />
+                )}
+                {inspection?.grade && <Row k="Grade" v={inspection.grade} />}
+                {location?.location_ref && <Row k="Location" v={location.location_ref} />}
+                {price?.final_price_per_kg != null && (
+                  <Row k="Price per kg" v={formatUsd(price.final_price_per_kg)} />
+                )}
+                {price?.purchase_value != null && (
+                  <Row k="Value" v={formatUsd(price.purchase_value)} />
+                )}
+              </section>
+            );
+          })}
+        {!loading &&
+          !error &&
+          section === "statements" &&
+          salesSheets.map((sheet) => {
+            const items =
+              dashboard?.salesSheetItems.filter((item) => item.sales_sheet_id === sheet.id) ?? [];
+            const adjustments =
+              dashboard?.salesSheetAdjustments.filter(
+                (adjustment) => adjustment.sales_sheet_id === sheet.id,
+              ) ?? [];
+            return (
+              <section key={sheet.id} className="rounded-2xl border bg-card px-4 shadow-card">
+                <p className="py-3 font-semibold">
+                  {sheet.sales_sheet_ref} · {t(sheet.status)}
+                </p>
+                <Row k="Statement date" v={formatDate(sheet.created_at)} />
+                <Row k="Gross amount" v={formatUsd(sheet.gross_amount)} />
+                <Row k="Bales" v={items.length} />
+                {items.length > 0 && (
+                  <Row
+                    k="Total weight"
+                    v={formatKg(items.reduce((total, item) => total + toNumber(item.weight_kg), 0))}
+                  />
+                )}
+                {adjustments.map((adjustment, index) => (
+                  <Row
+                    key={`${adjustment.category}-${index}`}
+                    k={adjustment.description || adjustment.category}
+                    v={formatUsd(adjustment.amount)}
+                  />
+                ))}
+              </section>
+            );
+          })}
+        {!loading &&
+          !error &&
+          section === "payments" &&
+          paymentRequests.map((payment) => {
+            const transactions =
+              dashboard?.paymentTransactions.filter(
+                (transaction) => transaction.payment_request_id === payment.id,
+              ) ?? [];
+            return (
+              <section key={payment.id} className="rounded-2xl border bg-card px-4 shadow-card">
+                <p className="py-3 font-semibold">
+                  {payment.payment_ref} · {t(payment.status)}
+                </p>
+                <Row k="Requested amount" v={formatUsd(payment.amount)} />
+                {payment.payment_method && <Row k="Payment method" v={payment.payment_method} />}
+                {payment.collection_point && (
+                  <Row k="Collection point" v={payment.collection_point} />
+                )}
+                {transactions.map((transaction, index) => (
+                  <div
+                    key={`${transaction.payment_reference ?? transaction.processed_at}-${index}`}
+                  >
+                    {transaction.processed_amount != null && (
+                      <Row k="Processed amount" v={formatUsd(transaction.processed_amount)} />
+                    )}
+                    {transaction.processed_at && (
+                      <Row k="Processed on" v={formatDate(transaction.processed_at)} />
+                    )}
                   </div>
                 ))}
-                <p className="mt-2 text-sm font-semibold">
-                  {t("Value")}: {money(b.weightKg * b.pricePerKg)}
-                </p>
-              </div>
-            )}
-          </div>
-        ))}
+              </section>
+            );
+          })}
       </div>
     </>
   );
 }
 
-function StatementsScreen({ back }: { back: () => void }) {
-  const { t } = useLanguage();
-  return (
-    <>
-      <SubHeader title="Sales Statements" onBack={back} />
-      <div className="space-y-3 px-5">
-        {salesSheets.map((s) => (
-          <div key={s.id} className="rounded-2xl border bg-card p-4 shadow-card">
-            <div className="flex items-center justify-between">
-              <p className="font-bold">{s.id}</p>
-              <span className="text-xs text-muted-foreground">{s.date}</span>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-xl bg-muted p-2">
-                <p className="font-bold text-sm">{s.bales}</p>
-                {t("Bales")}
-              </div>
-              <div className="rounded-xl bg-muted p-2">
-                <p className="font-bold text-sm">{s.kg}</p>kg
-              </div>
-              <div className="rounded-xl bg-primary-soft p-2 text-primary">
-                <p className="font-bold text-sm">{money(s.net)}</p>
-                {t("Net")}
-              </div>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t("Gross")} {money(s.gross)} − {t("deductions")} {money(s.deductions)}
-            </p>
-          </div>
-        ))}
-      </div>
-    </>
+function toNumber(value: number | string | null | undefined) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string" || value.trim() === "") return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatKg(value: number | string | null | undefined) {
+  return `${new Intl.NumberFormat().format(toNumber(value))} kg`;
+}
+
+function formatUsd(value: number | string | null | undefined) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    toNumber(value),
   );
+}
+
+function formatDate(value: string) {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 }
 
 function ProfileScreen({
   back,
+  profile,
   farmer,
   completion,
   farms,
+  onSetupProfile,
   onFarmsChange,
 }: {
   back: () => void;
+  profile: LinkedAccountProfile["profile"];
   farmer?: LinkedAccountProfile["farmer"] | undefined;
   completion?: number | undefined;
   farms: AccountFarm[];
+  onSetupProfile: () => void;
   onFarmsChange: (farms: AccountFarm[]) => void;
 }) {
   const { t } = useLanguage();
@@ -652,10 +849,10 @@ function ProfileScreen({
           </div>
           <div>
             <p className="text-lg font-bold">
-              {farmer ? `${farmer.first_name} ${farmer.surname}` : me.name}
+              {farmer ? `${farmer.first_name} ${farmer.surname}` : profile.displayName}
             </p>
             <p className="text-sm text-muted-foreground">
-              {t("Farmer")} #{farmer?.farmer_ref ?? me.id}
+              {farmer ? `${t("Farmer")} #${farmer.farmer_ref}` : profile.phone}
             </p>
           </div>
         </div>
@@ -671,14 +868,20 @@ function ProfileScreen({
               <Row k="Status" v={t(farmer.status)} />
             </>
           ) : (
-            <>
-              <Row k="Phone" v={me.phone} />
-              <Row k="Region" v={me.region} />
-              <Row k="Farm size" v={`${me.hectares} ha`} />
-              <Row k="Bank account" v={me.bank} />
-            </>
+            <Row k="Phone" v={profile.phone ?? ""} />
           )}
         </div>
+        {!farmer && (
+          <section className="space-y-2 rounded-2xl border bg-card p-4 shadow-card">
+            <p className="font-semibold">{t("Finish setting up your farmer profile")}</p>
+            <p className="text-sm text-muted-foreground">
+              {t("Add your farm and grower details when you are ready.")}
+            </p>
+            <Button type="button" onClick={onSetupProfile}>
+              {t("Continue")}
+            </Button>
+          </section>
+        )}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">{t("My farms")}</h2>
@@ -765,32 +968,12 @@ function ProfileScreen({
 }
 
 function SettingsScreen({ back }: { back: () => void }) {
-  const [sms, setSms] = useState(true);
   const { t } = useLanguage();
   return (
     <>
       <SubHeader title="Settings" onBack={back} />
       <div className="px-5">
         <div className="rounded-2xl border bg-card px-4 shadow-card">
-          <button
-            onClick={() => setSms(!sms)}
-            className="flex w-full items-center justify-between py-3 text-sm"
-          >
-            <span>{t("SMS notifications")}</span>
-            <span
-              className={cn(
-                "h-6 w-11 rounded-full p-0.5 transition",
-                sms ? "bg-primary" : "bg-border",
-              )}
-            >
-              <span
-                className={cn(
-                  "block h-5 w-5 rounded-full bg-card transition",
-                  sms && "translate-x-5",
-                )}
-              />
-            </span>
-          </button>
           <Row k="Language" v={<LanguageSelector />} />
         </div>
       </div>
@@ -798,58 +981,18 @@ function SettingsScreen({ back }: { back: () => void }) {
   );
 }
 
-function NotificationsScreen({
-  back,
-  notes,
-  markAll,
-}: {
-  back: () => void;
-  notes: typeof seedNotes;
-  markAll: () => void;
-}) {
-  const { t } = useLanguage();
-  return (
-    <>
-      <SubHeader
-        title="Notifications"
-        onBack={back}
-        right={
-          <button onClick={markAll} className="text-xs font-semibold text-primary">
-            {t("Read all")}
-          </button>
-        }
-      />
-      <div className="space-y-3 px-5">
-        {notes.map((n) => (
-          <div
-            key={n.id}
-            className={cn(
-              "rounded-2xl border p-4",
-              n.unread ? "border-primary/30 bg-primary-soft" : "bg-card",
-            )}
-          >
-            <div className="flex justify-between">
-              <p className="font-bold">{t(n.title)}</p>
-              <span className="text-xs text-muted-foreground">{n.time}</span>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">{t(n.body)}</p>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
 function Drawer({
   go,
+  profile,
+  farmer,
   close,
   logout,
-  unread,
 }: {
   go: (s: Screen) => void;
+  profile: LinkedAccountProfile["profile"];
+  farmer?: LinkedAccountProfile["farmer"] | undefined;
   close: () => void;
   logout: () => void;
-  unread: number;
 }) {
   const { t } = useLanguage();
   const items: { s: Screen; label: string; icon: typeof Home }[] = [
@@ -880,9 +1023,11 @@ function Drawer({
             <User />
           </div>
           <div>
-            <p className="font-bold">{me.name}</p>
+            <p className="font-bold">
+              {farmer ? `${farmer.first_name} ${farmer.surname}` : profile.displayName}
+            </p>
             <p className="text-xs text-muted-foreground">
-              {t("Farmer")} #{me.id}
+              {farmer ? `${t("Farmer")} #${farmer.farmer_ref}` : profile.phone}
             </p>
           </div>
         </div>
@@ -895,11 +1040,6 @@ function Drawer({
               >
                 <Icon className="h-5 w-5 text-primary" />
                 <span className="flex-1">{t(label)}</span>
-                {s === "notifications" && unread > 0 && (
-                  <span className="grid h-5 w-5 place-items-center rounded-full bg-destructive text-xs text-destructive-foreground">
-                    {unread}
-                  </span>
-                )}
               </button>
             </li>
           ))}

@@ -84,6 +84,143 @@ describe("server auth API", () => {
     expect(response?.status).toBe(401);
   });
 
+  it("requires a bearer token before loading farmer records", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/farmer-dashboard"),
+      config,
+    );
+
+    expect(response?.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns an empty farmer dashboard without querying records for an incomplete account", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/auth/v1/user") {
+          return Response.json({ id: "11111111-1111-4111-8111-111111111111" });
+        }
+        if (url.pathname === "/rest/v1/profiles") {
+          return Response.json([
+            {
+              user_id: "11111111-1111-4111-8111-111111111111",
+              display_name: "Farmer",
+              role: "farmer",
+              farmer_id: null,
+            },
+          ]);
+        }
+        throw new Error(`Unexpected Supabase request: ${url.pathname}`);
+      }),
+    );
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/farmer-dashboard", {
+        headers: { authorization: "Bearer valid-token" },
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      seasonSummaries: [],
+      contracts: [],
+      deliveries: [],
+      bales: [],
+      salesSheets: [],
+      paymentRequests: [],
+    });
+  });
+
+  it("scopes farmer dashboard and related records to the signed-in farmer", async () => {
+    const userId = "11111111-1111-4111-8111-111111111111";
+    const farmerId = "22222222-2222-4222-8222-222222222222";
+    const baleId = "33333333-3333-4333-8333-333333333333";
+    const salesSheetId = "44444444-4444-4444-8444-444444444444";
+    const paymentRequestId = "55555555-5555-4555-8555-555555555555";
+    const requestedUrls: URL[] = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        requestedUrls.push(url);
+        if (url.pathname === "/auth/v1/user") return Response.json({ id: userId });
+        if (url.pathname === "/rest/v1/profiles") {
+          return Response.json([
+            { user_id: userId, display_name: "Farmer", role: "farmer", farmer_id: farmerId },
+          ]);
+        }
+
+        const rows: Record<string, unknown[]> = {
+          "/rest/v1/farmer_season_summary": [],
+          "/rest/v1/contracts": [],
+          "/rest/v1/deliveries": [],
+          "/rest/v1/bales": [{ id: baleId }],
+          "/rest/v1/current_bale_locations": [],
+          "/rest/v1/sales_sheets": [{ id: salesSheetId }],
+          "/rest/v1/payment_requests": [{ id: paymentRequestId }],
+          "/rest/v1/quality_inspections": [],
+          "/rest/v1/bale_prices": [],
+          "/rest/v1/sales_sheet_items": [],
+          "/rest/v1/sales_sheet_adjustments": [],
+          "/rest/v1/payment_transactions": [],
+        };
+        const result = rows[url.pathname];
+        if (!result) throw new Error(`Unexpected Supabase request: ${url.pathname}`);
+        return Response.json(result);
+      }),
+    );
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/farmer-dashboard", {
+        headers: { authorization: "Bearer valid-token" },
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(200);
+    const dashboard = await response?.json();
+    expect(dashboard).toMatchObject({
+      bales: [{ id: baleId }],
+      salesSheets: [{ id: salesSheetId }],
+      paymentRequests: [{ id: paymentRequestId }],
+    });
+    const farmerScopedTables = [
+      "/rest/v1/farmer_season_summary",
+      "/rest/v1/contracts",
+      "/rest/v1/deliveries",
+      "/rest/v1/bales",
+      "/rest/v1/current_bale_locations",
+      "/rest/v1/sales_sheets",
+      "/rest/v1/payment_requests",
+    ];
+    for (const table of farmerScopedTables) {
+      const requestUrl = requestedUrls.find((url) => url.pathname === table);
+      expect(requestUrl?.searchParams.get("farmer_id")).toBe(`eq.${farmerId}`);
+    }
+    expect(
+      requestedUrls
+        .find((url) => url.pathname === "/rest/v1/quality_inspections")
+        ?.searchParams.get("bale_id"),
+    ).toBe(`in.(${baleId})`);
+    expect(
+      requestedUrls
+        .find((url) => url.pathname === "/rest/v1/sales_sheet_items")
+        ?.searchParams.get("sales_sheet_id"),
+    ).toBe(`in.(${salesSheetId})`);
+    expect(
+      requestedUrls
+        .find((url) => url.pathname === "/rest/v1/payment_transactions")
+        ?.searchParams.get("payment_request_id"),
+    ).toBe(`in.(${paymentRequestId})`);
+  });
+
   it("reports whether a normalized phone number has an account", async () => {
     vi.stubGlobal(
       "fetch",

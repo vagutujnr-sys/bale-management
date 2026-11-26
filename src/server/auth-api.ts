@@ -1413,6 +1413,215 @@ async function profileForUser(
   return profile ?? jsonResponse({ error: "Your profile data is invalid." }, 502);
 }
 
+type FarmerDataRows = Record<string, unknown>[];
+
+const emptyFarmerDashboard = {
+  seasonSummaries: [],
+  contracts: [],
+  deliveries: [],
+  bales: [],
+  baleLocations: [],
+  qualityInspections: [],
+  balePrices: [],
+  salesSheets: [],
+  salesSheetItems: [],
+  salesSheetAdjustments: [],
+  paymentRequests: [],
+  paymentTransactions: [],
+};
+
+async function queryFarmerRows(
+  config: { url: string; serviceKey: string },
+  table: string,
+  parameters: Record<string, string>,
+): Promise<FarmerDataRows | Response> {
+  const query = new URLSearchParams(parameters);
+  const response = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    `/rest/v1/${table}?${query}`,
+  );
+  if (!response.ok) {
+    return jsonResponse({ error: "Your live farmer records could not be loaded." }, 502);
+  }
+  const rows = await responseJson(response);
+  if (!Array.isArray(rows) || rows.some((row) => !isRecord(row))) {
+    return jsonResponse(
+      { error: "Your live farmer records were returned in an invalid format." },
+      502,
+    );
+  }
+  return rows as FarmerDataRows;
+}
+
+function rowUuids(rows: FarmerDataRows, field: string): string[] | null {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = stringField(row, field);
+    if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return null;
+    }
+    ids.add(id);
+  }
+  return [...ids];
+}
+
+async function queryRelatedFarmerRows(
+  config: { url: string; serviceKey: string },
+  table: string,
+  select: string,
+  foreignKey: string,
+  ids: string[],
+  order?: string,
+): Promise<FarmerDataRows | Response> {
+  if (ids.length === 0) return [];
+  return queryFarmerRows(config, table, {
+    select,
+    [foreignKey]: `in.(${ids.join(",")})`,
+    ...(order ? { order } : {}),
+  });
+}
+
+async function getFarmerDashboard(
+  request: Request,
+  config: { url: string; serviceKey: string },
+): Promise<Response> {
+  const user = await authenticatedUser(request, config);
+  if (user instanceof Response) return user;
+  const profile = await profileForUser(config, user["id"] as string);
+  if (profile instanceof Response) return profile;
+  if (profile.role !== "farmer") {
+    return jsonResponse({ error: "This account cannot view farmer records." }, 403);
+  }
+  if (!profile.farmer_id) return jsonResponse(emptyFarmerDashboard);
+
+  const farmerId = profile.farmer_id;
+  const baseResults = await Promise.all([
+    queryFarmerRows(config, "farmer_season_summary", {
+      select:
+        "farmer_id,farmer_ref,contract_id,contract_ref,season_id,season_year,contracted_quantity_kg,delivered_expected_kg,received_kg,accepted_kg,purchased_kg,contract_balance_kg,paid_amount,outstanding_payment_amount",
+      farmer_id: `eq.${farmerId}`,
+      order: "season_year.desc",
+    }),
+    queryFarmerRows(config, "contracts", {
+      select:
+        "id,contract_ref,farmer_id,season_id,contracted_quantity_kg,expected_deliveries,starts_on,ends_on,payment_terms,status",
+      farmer_id: `eq.${farmerId}`,
+      order: "starts_on.desc",
+    }),
+    queryFarmerRows(config, "deliveries", {
+      select:
+        "id,delivery_ref,farmer_id,contract_id,season_id,expected_bale_count,expected_weight_kg,delivery_date,status",
+      farmer_id: `eq.${farmerId}`,
+      order: "delivery_date.desc",
+    }),
+    queryFarmerRows(config, "bales", {
+      select:
+        "id,bale_ref,farmer_id,delivery_id,contract_id,season_id,bale_type,received_weight_kg,receiving_station,received_at",
+      farmer_id: `eq.${farmerId}`,
+      order: "received_at.desc",
+    }),
+    queryFarmerRows(config, "current_bale_locations", {
+      select: "bale_id,farmer_id,location_ref,location_updated_at",
+      farmer_id: `eq.${farmerId}`,
+    }),
+    queryFarmerRows(config, "sales_sheets", {
+      select: "id,sales_sheet_ref,farmer_id,contract_id,delivery_id,gross_amount,status,created_at",
+      farmer_id: `eq.${farmerId}`,
+      order: "created_at.desc",
+    }),
+    queryFarmerRows(config, "payment_requests", {
+      select:
+        "id,payment_ref,farmer_id,sales_sheet_id,amount,payment_method,collection_point,status,requested_at",
+      farmer_id: `eq.${farmerId}`,
+      order: "requested_at.desc",
+    }),
+  ]);
+  const failedBase = baseResults.find((result) => result instanceof Response);
+  if (failedBase instanceof Response) return failedBase;
+  const [
+    seasonSummaries,
+    contracts,
+    deliveries,
+    bales,
+    baleLocations,
+    salesSheets,
+    paymentRequests,
+  ] = baseResults as FarmerDataRows[];
+  const baleIds = rowUuids(bales, "id");
+  const salesSheetIds = rowUuids(salesSheets, "id");
+  const paymentRequestIds = rowUuids(paymentRequests, "id");
+  if (!baleIds || !salesSheetIds || !paymentRequestIds) {
+    return jsonResponse({ error: "Your live farmer records contain invalid identifiers." }, 502);
+  }
+
+  const relatedResults = await Promise.all([
+    queryRelatedFarmerRows(
+      config,
+      "quality_inspections",
+      "bale_id,inspection_number,grade,moisture_percent,colour,leaf_type,qc_decision,inspected_at",
+      "bale_id",
+      baleIds,
+      "inspection_number.desc",
+    ),
+    queryRelatedFarmerRows(
+      config,
+      "bale_prices",
+      "bale_id,final_price_per_kg,payable_weight_kg,purchase_value,set_at,locked_at",
+      "bale_id",
+      baleIds,
+      "set_at.desc",
+    ),
+    queryRelatedFarmerRows(
+      config,
+      "sales_sheet_items",
+      "sales_sheet_id,bale_id,weight_kg,grade,price_per_kg,amount",
+      "sales_sheet_id",
+      salesSheetIds,
+    ),
+    queryRelatedFarmerRows(
+      config,
+      "sales_sheet_adjustments",
+      "sales_sheet_id,adjustment_type,category,description,amount,approved_at",
+      "sales_sheet_id",
+      salesSheetIds,
+      "approved_at.desc",
+    ),
+    queryRelatedFarmerRows(
+      config,
+      "payment_transactions",
+      "payment_request_id,payment_reference,processed_amount,processed_at,collection_point,collected_at",
+      "payment_request_id",
+      paymentRequestIds,
+      "processed_at.desc",
+    ),
+  ]);
+  const failedRelated = relatedResults.find((result) => result instanceof Response);
+  if (failedRelated instanceof Response) return failedRelated;
+  const [
+    qualityInspections,
+    balePrices,
+    salesSheetItems,
+    salesSheetAdjustments,
+    paymentTransactions,
+  ] = relatedResults as FarmerDataRows[];
+
+  return jsonResponse({
+    seasonSummaries,
+    contracts,
+    deliveries,
+    bales,
+    baleLocations,
+    qualityInspections,
+    balePrices,
+    salesSheets,
+    salesSheetItems,
+    salesSheetAdjustments,
+    paymentRequests,
+    paymentTransactions,
+  });
+}
+
 async function saveOnboarding(
   request: Request,
   config: { url: string; serviceKey: string },
@@ -1845,7 +2054,8 @@ export async function handleAuthApiRequest(
     pathname !== "/api/auth/driver-onboarding/complete" &&
     pathname !== "/api/auth/farmer-signup" &&
     pathname !== "/api/auth/driver-signup" &&
-    pathname !== "/api/auth/profile"
+    pathname !== "/api/auth/profile" &&
+    pathname !== "/api/auth/farmer-dashboard"
   ) {
     return null;
   }
@@ -1885,6 +2095,10 @@ export async function handleAuthApiRequest(
   if (pathname === "/api/auth/driver-signup") {
     if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
     return createDriverAccount(request, config);
+  }
+  if (pathname === "/api/auth/farmer-dashboard") {
+    if (request.method !== "GET") return jsonResponse({ error: "Method not allowed." }, 405);
+    return getFarmerDashboard(request, config);
   }
   if (request.method !== "GET") return jsonResponse({ error: "Method not allowed." }, 405);
   return getAccountProfile(request, config);

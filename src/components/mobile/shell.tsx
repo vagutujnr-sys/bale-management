@@ -28,7 +28,7 @@ export function DeviceFrame({ children, side }: { children: ReactNode; side?: Re
   return (
     <div className="min-h-screen bg-field lg:flex lg:items-center lg:justify-center lg:gap-16 lg:p-8">
       {side && <aside className="hidden max-w-sm lg:block">{side}</aside>}
-      <div className="relative mx-auto flex h-[100dvh] w-full flex-col overflow-hidden bg-background lg:h-[860px] lg:w-[400px] lg:rounded-lg lg:border-[10px] lg:border-device lg:shadow-device">
+      <div className="relative mx-auto flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-background lg:h-[860px] lg:w-[400px] lg:rounded-lg lg:border-[10px] lg:border-device lg:shadow-device">
         {children}
       </div>
     </div>
@@ -81,7 +81,7 @@ export function SubHeader({
 }) {
   const { t } = useLanguage();
   return (
-    <div className="grid grid-cols-[40px_1fr_auto] items-center px-4 pt-5 pb-3">
+    <div className="sticky top-0 z-10 grid grid-cols-[40px_1fr_auto] items-center bg-background px-4 pt-5 pb-3">
       <button onClick={onBack} aria-label={t("Back")} className="rounded-full p-2 hover:bg-muted">
         <ArrowLeft className="h-5 w-5" />
       </button>
@@ -111,7 +111,7 @@ export function BottomNav<T extends string>({
   const { t } = useLanguage();
   return (
     <nav
-      className="grid border-t bg-card"
+      className="grid shrink-0 border-t bg-card pb-[env(safe-area-inset-bottom)]"
       style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0,1fr))` }}
     >
       {tabs.map(({ key, label, icon: Icon }) => {

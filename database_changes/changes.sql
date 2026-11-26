@@ -8,6 +8,38 @@ BEGIN;
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS phone_e164 text;
 
+-- Phone-first farmer accounts have no farmer record until onboarding is complete.
+ALTER TABLE public.profiles
+  DROP CONSTRAINT IF EXISTS profiles_check;
+
+-- Keep existing operational roles and allow the phone-first driver roles.
+ALTER TABLE public.profiles
+  DROP CONSTRAINT IF EXISTS profiles_role_check,
+  ADD CONSTRAINT profiles_role_check CHECK (
+    role IN (
+      'unassigned',
+      'farmer',
+      'farmer_registrar',
+      'contract_officer',
+      'transport_clerk',
+      'delivery_clerk',
+      'grower_verification_clerk',
+      'gate_clerk',
+      'receiving_clerk',
+      'quality_grader',
+      'price_officer',
+      'buyer_supervisor',
+      'finance_officer',
+      'warehouse_clerk',
+      'dispatch_officer',
+      'destination_receiver',
+      'management',
+      'system_administrator',
+      'driver',
+      'transporter'
+    )
+  );
+
 -- Backfill phone-based accounts from the email alias used by the current auth flow.
 UPDATE public.profiles AS profile
 SET phone_e164 = '+' || regexp_replace(lower(auth_user.email), '@phone\.auth\.invalid$', '')
