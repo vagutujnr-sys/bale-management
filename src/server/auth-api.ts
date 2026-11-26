@@ -1311,6 +1311,11 @@ async function createPhoneAccount(
     }),
   });
   if (!profile.ok) {
+    const profileError = await responseJson(profile.clone());
+    console.error("Supabase account profile insert failed.", {
+      status: profile.status,
+      code: isRecord(profileError) ? stringField(profileError, "code") : null,
+    });
     const userDeleted = await deleteAuthUser(config.url, config.serviceKey, userId);
     return jsonResponse(
       {

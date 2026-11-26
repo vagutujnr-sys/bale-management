@@ -8,6 +8,7 @@ const config = {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("server auth API", () => {
@@ -106,6 +107,57 @@ describe("server auth API", () => {
     );
 
     await expect(response?.json()).resolves.toEqual({ exists: true });
+  });
+
+  it("logs only the Supabase error code when a new account profile insert fails", async () => {
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const method = init?.method ?? "GET";
+        if (url.pathname === "/rest/v1/profiles" && method === "GET") {
+          return Response.json([]);
+        }
+        if (url.pathname === "/auth/v1/admin/users" && method === "POST") {
+          return Response.json({ id: "11111111-1111-4111-8111-111111111111" }, { status: 201 });
+        }
+        if (url.pathname === "/rest/v1/profiles" && method === "POST") {
+          return Response.json(
+            { code: "42703", message: "private database details" },
+            { status: 400 },
+          );
+        }
+        if (url.pathname === "/auth/v1/admin/users/11111111-1111-4111-8111-111111111111") {
+          return new Response(null, { status: 204 });
+        }
+        throw new Error(`Unexpected Supabase request: ${method} ${url.pathname}`);
+      }),
+    );
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/account-create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          phone: "+263771234567",
+          pin: "123456",
+          displayName: "Example Farmer",
+          accountKind: "farmer",
+        }),
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: "Your account profile could not be created. Please try again.",
+    });
+    expect(logError).toHaveBeenCalledWith("Supabase account profile insert failed.", {
+      status: 400,
+      code: "42703",
+    });
+    expect(JSON.stringify(logError.mock.calls)).not.toContain("private database details");
   });
 
   it("returns the inserted farm row when saving a new farm", async () => {
