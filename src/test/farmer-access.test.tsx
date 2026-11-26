@@ -85,6 +85,7 @@ describe("farmer access before profile completion", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByText("2026 Season")).not.toBeInTheDocument();
     expect(screen.queryByText("$750.00")).not.toBeInTheDocument();
+    expect(screen.getByText("$0.00")).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Your details" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));

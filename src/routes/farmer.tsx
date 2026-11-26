@@ -352,7 +352,7 @@ function HomeScreen({
         ? t("Loading...")
         : latestPayment
           ? formatUsd(latestPayment.processed_amount)
-          : "—",
+          : "$0.00",
       color: "text-primary",
     },
     {
@@ -420,7 +420,7 @@ function HomeScreen({
         <button
           type="button"
           onClick={() => go("contract")}
-          className="-mt-8 flex w-full items-center gap-4 rounded-[30px] bg-primary-deep p-6 text-left text-primary-foreground shadow-card transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-2 flex w-full items-center gap-4 rounded-2xl bg-primary-deep p-6 text-left text-primary-foreground shadow-card transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <FileText aria-hidden="true" className="h-12 w-12 shrink-0" />
           <div className="min-w-0 flex-1">
