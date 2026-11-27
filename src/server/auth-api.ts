@@ -1685,15 +1685,42 @@ async function saveFarm(
     typeof body["district"] !== "string" ||
     typeof body["ward"] !== "string" ||
     (body["id"] !== undefined && typeof body["id"] !== "string") ||
-    (body["isPrimary"] !== undefined && typeof body["isPrimary"] !== "boolean")
+    (body["isPrimary"] !== undefined && typeof body["isPrimary"] !== "boolean") ||
+    (body["farmSizeHa"] !== undefined &&
+      (typeof body["farmSizeHa"] !== "number" ||
+        !Number.isFinite(body["farmSizeHa"]) ||
+        body["farmSizeHa"] <= 0)) ||
+    (body["expectedProductionKg"] !== undefined &&
+      (typeof body["expectedProductionKg"] !== "number" ||
+        !Number.isFinite(body["expectedProductionKg"]) ||
+        body["expectedProductionKg"] <= 0)) ||
+    (body["submitForAssessment"] !== undefined &&
+      typeof body["submitForAssessment"] !== "boolean") ||
+    (body["resetAssessment"] !== undefined && typeof body["resetAssessment"] !== "boolean") ||
+    (body["submitForAssessment"] === true && body["resetAssessment"] === true)
   ) {
     return body instanceof Response
       ? body
       : jsonResponse({ error: "Farm details are invalid." }, 400);
   }
   const farmName = body["farmName"].trim();
+  const submitForAssessment = body["submitForAssessment"] === true;
   if (!farmName || farmName.length > 120) {
     return jsonResponse({ error: "Enter a farm name." }, 400);
+  }
+  if (
+    submitForAssessment &&
+    (!body["id"] ||
+      typeof body["farmSizeHa"] !== "number" ||
+      typeof body["expectedProductionKg"] !== "number" ||
+      !body["province"].trim() ||
+      !body["district"].trim() ||
+      !body["ward"].trim())
+  ) {
+    return jsonResponse(
+      { error: "Complete the farm location, size, and expected production before submitting." },
+      400,
+    );
   }
 
   const user = await authenticatedUser(request, config);
@@ -1702,6 +1729,35 @@ async function saveFarm(
   if (profile instanceof Response) return profile;
   if (profile.role !== "farmer") {
     return jsonResponse({ error: "Only farmer accounts can manage farms." }, 403);
+  }
+  const updateId = typeof body["id"] === "string" ? body["id"] : null;
+  if (submitForAssessment && updateId) {
+    const submissionFarmQuery = new URLSearchParams({
+      select: "photo_paths",
+      id: `eq.${updateId}`,
+      profile_user_id: `eq.${profile.user_id}`,
+      limit: "1",
+    });
+    const submissionFarmResponse = await makeSupabaseRequest(
+      config.url,
+      config.serviceKey,
+      `/rest/v1/farms?${submissionFarmQuery}`,
+    );
+    if (!submissionFarmResponse.ok) {
+      return jsonResponse({ error: "Could not verify the farm photos." }, 502);
+    }
+    const submissionFarms = await responseJson(submissionFarmResponse);
+    if (
+      !Array.isArray(submissionFarms) ||
+      !isRecord(submissionFarms[0]) ||
+      !Array.isArray(submissionFarms[0]["photo_paths"]) ||
+      submissionFarms[0]["photo_paths"].length < 4
+    ) {
+      return jsonResponse(
+        { error: "Upload at least four farm photos before submitting for assessment." },
+        400,
+      );
+    }
   }
 
   const existingQuery = new URLSearchParams({
@@ -1721,7 +1777,6 @@ async function saveFarm(
     return jsonResponse({ error: "Could not load your farms." }, 502);
   }
   const requestedPrimary = body["isPrimary"] === true;
-  const updateId = typeof body["id"] === "string" ? body["id"] : null;
   const existingPrimaryId =
     existingFarms.length > 0 && isRecord(existingFarms[0])
       ? stringField(existingFarms[0], "id")
@@ -1773,6 +1828,33 @@ async function saveFarm(
     district: body["district"].trim(),
     ward: body["ward"].trim(),
     is_primary: isPrimary,
+    ...(typeof body["farmSizeHa"] === "number" ? { farm_size_ha: body["farmSizeHa"] } : {}),
+    ...(typeof body["expectedProductionKg"] === "number"
+      ? { expected_production_kg: body["expectedProductionKg"] }
+      : {}),
+    ...(submitForAssessment
+      ? {
+          review_status: "pending_assessment",
+          submitted_at: new Date().toISOString(),
+          assessment_notes: null,
+          assessed_by: null,
+          assessed_at: null,
+          review_notes: null,
+          reviewed_by: null,
+          reviewed_at: null,
+        }
+      : body["resetAssessment"] === true
+        ? {
+            review_status: "draft",
+            submitted_at: null,
+            assessment_notes: null,
+            assessed_by: null,
+            assessed_at: null,
+            review_notes: null,
+            reviewed_by: null,
+            reviewed_at: null,
+          }
+        : {}),
   };
   let response: Response;
   let rows: unknown;
@@ -1822,6 +1904,343 @@ async function saveFarm(
   return jsonResponse({ farm });
 }
 
+const farmPhotoBucket = "farm-photos";
+
+function encodedStoragePath(path: string) {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
+async function removeFarmPhotoObjects(
+  config: { url: string; serviceKey: string },
+  paths: string[],
+) {
+  if (!paths.length) return true;
+  const response = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    `/storage/v1/object/${farmPhotoBucket}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ prefixes: paths }),
+    },
+  );
+  return response.ok;
+}
+
+async function uploadFarmPhotos(
+  request: Request,
+  config: { url: string; serviceKey: string },
+): Promise<Response> {
+  const body = await parseRequestBody(request);
+  if (
+    body instanceof Response ||
+    !isRecord(body) ||
+    typeof body["farmId"] !== "string" ||
+    !Array.isArray(body["photoPaths"]) ||
+    body["photoPaths"].length < 1 ||
+    body["photoPaths"].some((path) => typeof path !== "string")
+  ) {
+    return body instanceof Response
+      ? body
+      : jsonResponse({ error: "Farm photo upload details are invalid." }, 400);
+  }
+  const farmId = body["farmId"];
+  const photoPaths = body["photoPaths"].filter((path): path is string => typeof path === "string");
+  const user = await authenticatedUser(request, config);
+  if (user instanceof Response) return user;
+  const profile = await profileForUser(config, user["id"] as string);
+  if (profile instanceof Response) return profile;
+  if (profile.role !== "farmer") {
+    return jsonResponse({ error: "Only farmer accounts can manage farm photos." }, 403);
+  }
+  const expectedPrefix = `${profile.user_id}/${farmId}/`;
+  if (
+    new Set(photoPaths).size !== photoPaths.length ||
+    photoPaths.some(
+      (path) =>
+        !path.startsWith(expectedPrefix) ||
+        !/^[0-9a-f-]{36}\.(jpg|png|webp)$/i.test(path.slice(expectedPrefix.length)),
+    )
+  ) {
+    return jsonResponse({ error: "Farm photo paths are invalid." }, 400);
+  }
+
+  const farmQuery = new URLSearchParams({
+    select: "id,photo_paths",
+    id: `eq.${farmId}`,
+    profile_user_id: `eq.${profile.user_id}`,
+    limit: "1",
+  });
+  const farmResponse = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    `/rest/v1/farms?${farmQuery}`,
+  );
+  if (!farmResponse.ok) return jsonResponse({ error: "Could not load this farm." }, 502);
+  const farmRows = await responseJson(farmResponse);
+  if (!Array.isArray(farmRows) || !isRecord(farmRows[0])) {
+    return jsonResponse({ error: "This farm could not be found." }, 404);
+  }
+  const currentPaths = Array.isArray(farmRows[0]["photo_paths"])
+    ? farmRows[0]["photo_paths"].filter((path): path is string => typeof path === "string")
+    : [];
+  if (
+    currentPaths.length + photoPaths.length > 10 ||
+    photoPaths.some((path) => !path.startsWith(`${profile.user_id}/${farmId}/`)) ||
+    photoPaths.some((path) => currentPaths.includes(path))
+  ) {
+    return jsonResponse({ error: "A farm can have no more than 10 photos." }, 400);
+  }
+
+  for (const path of photoPaths) {
+    const infoResponse = await makeSupabaseRequest(
+      config.url,
+      config.serviceKey,
+      `/storage/v1/object/info/${farmPhotoBucket}/${encodedStoragePath(path)}`,
+    );
+    if (!infoResponse.ok) {
+      return jsonResponse({ error: "An uploaded farm photo could not be verified." }, 400);
+    }
+  }
+
+  const updatedPhotoPaths = [...currentPaths, ...photoPaths];
+  const updateQuery = new URLSearchParams({
+    id: `eq.${farmId}`,
+    profile_user_id: `eq.${profile.user_id}`,
+    select: "*",
+  });
+  const updateResponse = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    `/rest/v1/farms?${updateQuery}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ photo_paths: updatedPhotoPaths }),
+    },
+  );
+  const updatedRows = await responseJson(updateResponse);
+  if (!updateResponse.ok || !Array.isArray(updatedRows) || !isRecord(updatedRows[0])) {
+    const cleanupOk = await removeFarmPhotoObjects(config, photoPaths);
+    if (!cleanupOk) console.error("Could not clean up farm photos after a failed farm update.");
+    return jsonResponse(
+      { error: "Farm photos uploaded but could not be attached to the farm." },
+      502,
+    );
+  }
+  return jsonResponse({ farm: updatedRows[0] });
+}
+
+async function signedFarmPhotoUrls(
+  config: { url: string; serviceKey: string },
+  paths: string[],
+): Promise<string[] | Response> {
+  const signedUrls: string[] = [];
+  for (const path of paths) {
+    const response = await makeSupabaseRequest(
+      config.url,
+      config.serviceKey,
+      `/storage/v1/object/sign/${farmPhotoBucket}/${encodedStoragePath(path)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ expiresIn: 3600 }),
+      },
+    );
+    const result = await responseJson(response);
+    if (!response.ok || !isRecord(result) || typeof result["signedURL"] !== "string") {
+      return jsonResponse({ error: "Farm photos could not be opened for assessment." }, 502);
+    }
+    const pathOrUrl = result["signedURL"];
+    signedUrls.push(
+      pathOrUrl.startsWith("http")
+        ? pathOrUrl
+        : `${config.url}/storage/v1${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`,
+    );
+  }
+  return signedUrls;
+}
+
+async function getFarmAssessmentQueue(
+  request: Request,
+  config: { url: string; serviceKey: string },
+): Promise<Response> {
+  const user = await authenticatedUser(request, config);
+  if (user instanceof Response) return user;
+  const profile = await profileForUser(config, user["id"] as string);
+  if (profile instanceof Response) return profile;
+  if (profile.role !== "staff")
+    return jsonResponse({ error: "Only staff can review farm assessments." }, 403);
+
+  const farmQuery = new URLSearchParams({
+    select:
+      "id,profile_user_id,farmer_id,farm_name,province,district,ward,farm_size_ha,expected_production_kg,photo_paths,review_status,submitted_at,assessment_notes,review_notes,is_primary",
+    review_status: "in.(pending_assessment,pending_approval)",
+    order: "submitted_at.asc",
+  });
+  const farmsResponse = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    `/rest/v1/farms?${farmQuery}`,
+  );
+  if (!farmsResponse.ok)
+    return jsonResponse({ error: "Farm assessments could not be loaded." }, 502);
+  const farms = await responseJson(farmsResponse);
+  if (!Array.isArray(farms) || farms.some((farm) => !isRecord(farm))) {
+    return jsonResponse({ error: "The farm assessment list is invalid." }, 502);
+  }
+  const farmRecords = farms as Record<string, unknown>[];
+  const userIds = [
+    ...new Set(farmRecords.map((farm) => stringField(farm, "profile_user_id"))),
+  ].filter((id): id is string => id !== null);
+  const profileNames = new Map<string, string>();
+  if (userIds.length) {
+    const profileQuery = new URLSearchParams({
+      select: "user_id,display_name",
+      user_id: `in.(${userIds.join(",")})`,
+    });
+    const profilesResponse = await makeSupabaseRequest(
+      config.url,
+      config.serviceKey,
+      `/rest/v1/profiles?${profileQuery}`,
+    );
+    if (!profilesResponse.ok)
+      return jsonResponse({ error: "Farm submitter details could not be loaded." }, 502);
+    const profiles = await responseJson(profilesResponse);
+    if (!Array.isArray(profiles) || profiles.some((item) => !isRecord(item))) {
+      return jsonResponse({ error: "Farm submitter details are invalid." }, 502);
+    }
+    for (const item of profiles) {
+      const id = stringField(item, "user_id");
+      const name = stringField(item, "display_name");
+      if (id && name) profileNames.set(id, name);
+    }
+  }
+
+  const queue: Record<string, unknown>[] = [];
+  for (const farm of farmRecords) {
+    const photoPaths = Array.isArray(farm["photo_paths"])
+      ? farm["photo_paths"].filter((path): path is string => typeof path === "string")
+      : [];
+    const photoUrls = await signedFarmPhotoUrls(config, photoPaths);
+    if (photoUrls instanceof Response) return photoUrls;
+    const profileUserId = stringField(farm, "profile_user_id");
+    queue.push({
+      ...farm,
+      farmer_name: profileUserId ? (profileNames.get(profileUserId) ?? null) : null,
+      photo_urls: photoUrls,
+    });
+  }
+  return jsonResponse({ farms: queue });
+}
+
+async function reviewFarmAssessment(
+  request: Request,
+  config: { url: string; serviceKey: string },
+): Promise<Response> {
+  const body = await parseRequestBody(request);
+  if (
+    body instanceof Response ||
+    !isRecord(body) ||
+    typeof body["farmId"] !== "string" ||
+    !["assessed", "approved", "rejected"].includes(String(body["decision"])) ||
+    (body["notes"] !== undefined && typeof body["notes"] !== "string")
+  ) {
+    return body instanceof Response
+      ? body
+      : jsonResponse({ error: "Farm assessment decision is invalid." }, 400);
+  }
+  const farmId = body["farmId"];
+  const decision = body["decision"] as "assessed" | "approved" | "rejected";
+  const notes = typeof body["notes"] === "string" ? body["notes"].trim() : "";
+  if (notes.length > 2000 || (decision === "rejected" && !notes)) {
+    return jsonResponse({ error: "Add a reason when rejecting a farm." }, 400);
+  }
+
+  const user = await authenticatedUser(request, config);
+  if (user instanceof Response) return user;
+  const profile = await profileForUser(config, user["id"] as string);
+  if (profile instanceof Response) return profile;
+  if (profile.role !== "staff")
+    return jsonResponse({ error: "Only staff can review farm assessments." }, 403);
+
+  const farmQuery = new URLSearchParams({
+    select: "id,review_status",
+    id: `eq.${farmId}`,
+    limit: "1",
+  });
+  const farmResponse = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    `/rest/v1/farms?${farmQuery}`,
+  );
+  if (!farmResponse.ok) return jsonResponse({ error: "Could not load this farm assessment." }, 502);
+  const farmRows = await responseJson(farmResponse);
+  if (!Array.isArray(farmRows) || !isRecord(farmRows[0])) {
+    return jsonResponse({ error: "This farm assessment could not be found." }, 404);
+  }
+  const currentStatus = stringField(farmRows[0], "review_status");
+  if (
+    (decision === "assessed" && currentStatus !== "pending_assessment") ||
+    (decision === "approved" && currentStatus !== "pending_approval") ||
+    (decision === "rejected" &&
+      currentStatus !== "pending_assessment" &&
+      currentStatus !== "pending_approval")
+  ) {
+    return jsonResponse({ error: "This farm has already changed review status." }, 409);
+  }
+
+  const now = new Date().toISOString();
+  const values =
+    decision === "assessed"
+      ? {
+          review_status: "pending_approval",
+          assessment_notes: notes || null,
+          assessed_by: profile.user_id,
+          assessed_at: now,
+        }
+      : decision === "approved"
+        ? {
+            review_status: "approved",
+            review_notes: notes || null,
+            reviewed_by: profile.user_id,
+            reviewed_at: now,
+          }
+        : {
+            review_status: "rejected",
+            review_notes: notes,
+            reviewed_by: profile.user_id,
+            reviewed_at: now,
+          };
+  const updateQuery = new URLSearchParams({
+    select: "*",
+    id: `eq.${farmId}`,
+    review_status: `eq.${currentStatus}`,
+  });
+  const updateResponse = await makeSupabaseRequest(
+    config.url,
+    config.serviceKey,
+    `/rest/v1/farms?${updateQuery}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(values),
+    },
+  );
+  if (!updateResponse.ok)
+    return jsonResponse({ error: "The farm assessment could not be updated." }, 502);
+  const updatedRows = await responseJson(updateResponse);
+  if (!Array.isArray(updatedRows) || !isRecord(updatedRows[0])) {
+    return jsonResponse({ error: "This farm has already changed review status." }, 409);
+  }
+  const farm = updatedRows[0];
+  const photoPaths = Array.isArray(farm["photo_paths"])
+    ? farm["photo_paths"].filter((path): path is string => typeof path === "string")
+    : [];
+  const photoUrls = await signedFarmPhotoUrls(config, photoPaths);
+  if (photoUrls instanceof Response) return photoUrls;
+  return jsonResponse({ farm: { ...farm, farmer_name: null, photo_urls: photoUrls } });
+}
+
 async function loadAccountExtras(
   config: { url: string; serviceKey: string },
   userId: string,
@@ -1845,7 +2264,8 @@ async function loadAccountExtras(
   }
 
   const farmsQuery = new URLSearchParams({
-    select: "id,farmer_id,farm_name,province,district,ward,is_primary",
+    select:
+      "id,farmer_id,farm_name,province,district,ward,farm_size_ha,expected_production_kg,photo_paths,review_status,assessment_notes,review_notes,is_primary",
     profile_user_id: `eq.${userId}`,
     order: "created_at.asc",
   });
@@ -2050,6 +2470,9 @@ export async function handleAuthApiRequest(
     pathname !== "/api/auth/account-create" &&
     pathname !== "/api/auth/onboarding" &&
     pathname !== "/api/auth/farms" &&
+    pathname !== "/api/auth/farms/photos" &&
+    pathname !== "/api/auth/farm-assessments" &&
+    pathname !== "/api/auth/farm-assessments/review" &&
     pathname !== "/api/auth/farmer-onboarding/complete" &&
     pathname !== "/api/auth/driver-onboarding/complete" &&
     pathname !== "/api/auth/farmer-signup" &&
@@ -2079,6 +2502,18 @@ export async function handleAuthApiRequest(
   if (pathname === "/api/auth/farms") {
     if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
     return saveFarm(request, config);
+  }
+  if (pathname === "/api/auth/farms/photos") {
+    if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
+    return uploadFarmPhotos(request, config);
+  }
+  if (pathname === "/api/auth/farm-assessments") {
+    if (request.method !== "GET") return jsonResponse({ error: "Method not allowed." }, 405);
+    return getFarmAssessmentQueue(request, config);
+  }
+  if (pathname === "/api/auth/farm-assessments/review") {
+    if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
+    return reviewFarmAssessment(request, config);
   }
   if (pathname === "/api/auth/farmer-onboarding/complete") {
     if (request.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);

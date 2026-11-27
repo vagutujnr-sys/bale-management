@@ -81,7 +81,7 @@ export function SubHeader({
 }) {
   const { t } = useLanguage();
   return (
-    <div className="sticky top-0 z-10 grid grid-cols-[40px_1fr_auto] items-center bg-background px-4 pt-5 pb-3">
+    <div className="sticky top-0 z-20 grid grid-cols-[40px_1fr_auto] items-center border-b bg-background px-4 pt-5 pb-3">
       <button onClick={onBack} aria-label={t("Back")} className="rounded-full p-2 hover:bg-muted">
         <ArrowLeft className="h-5 w-5" />
       </button>
@@ -111,7 +111,7 @@ export function BottomNav<T extends string>({
   const { t } = useLanguage();
   return (
     <nav
-      className="grid shrink-0 border-t bg-card pb-[env(safe-area-inset-bottom)]"
+      className="sticky bottom-0 z-20 mt-auto grid w-full shrink-0 border-t bg-card pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_12px_hsl(var(--foreground)/0.04)]"
       style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0,1fr))` }}
     >
       {tabs.map(({ key, label, icon: Icon }) => {

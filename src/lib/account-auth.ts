@@ -12,7 +12,19 @@ export type AccountFarm = {
   province: string | null;
   district: string | null;
   ward: string | null;
+  farm_size_ha: number | string | null;
+  expected_production_kg: number | string | null;
+  photo_paths: string[];
+  review_status: "draft" | "pending_assessment" | "pending_approval" | "approved" | "rejected";
+  assessment_notes: string | null;
+  review_notes: string | null;
   is_primary: boolean;
+};
+
+export type FarmAssessment = AccountFarm & {
+  profile_user_id: string;
+  farmer_name: string | null;
+  photo_urls: string[];
 };
 
 export type AccountOnboarding = {
@@ -259,10 +271,121 @@ export async function saveAccountFarm(input: {
   province: string;
   district: string;
   ward: string;
+  farmSizeHa?: number;
+  expectedProductionKg?: number;
   isPrimary?: boolean;
+  submitForAssessment?: boolean;
+  resetAssessment?: boolean;
 }) {
   const token = await requireSessionToken();
   return postJson<{ farm: AccountFarm }>("/api/auth/farms", input, token);
+}
+
+export async function uploadAccountFarmPhotos(farmId: string, photos: File[]) {
+  const token = await requireSessionToken();
+  const client = requireSupabaseClient();
+  const {
+    data: { session },
+    error: sessionError,
+  } = await client.auth.getSession();
+  if (sessionError || !session) throw new Error("Sign in to upload farm photos.");
+  if (photos.length > 10) throw new Error("A farm can have no more than 10 photos.");
+
+  const bucket = client.storage.from("farm-photos");
+  const uploadedPaths: string[] = [];
+  for (const photo of photos) {
+    const extension =
+      photo.type === "image/jpeg"
+        ? "jpg"
+        : photo.type === "image/png"
+          ? "png"
+          : photo.type === "image/webp"
+            ? "webp"
+            : null;
+    if (!extension || photo.size <= 0 || photo.size > 8 * 1024 * 1024) {
+      if (uploadedPaths.length) {
+        const { error: cleanupError } = await bucket.remove(uploadedPaths);
+        if (cleanupError)
+          console.error("Could not clean up incomplete farm photo uploads.", cleanupError);
+      }
+      throw new Error("Use JPEG, PNG, or WebP photos no larger than 8 MB each.");
+    }
+
+    const path = `${session.user.id}/${farmId}/${crypto.randomUUID()}.${extension}`;
+    const { error } = await bucket.upload(path, photo, {
+      contentType: photo.type,
+      upsert: false,
+    });
+    if (error) {
+      if (uploadedPaths.length) {
+        const { error: cleanupError } = await bucket.remove(uploadedPaths);
+        if (cleanupError)
+          console.error("Could not clean up incomplete farm photo uploads.", cleanupError);
+      }
+      throw new Error(`Farm photo upload failed: ${error.message}`);
+    }
+    uploadedPaths.push(path);
+  }
+
+  const response = await fetch("/api/auth/farms/photos", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ farmId, photoPaths: uploadedPaths }),
+  });
+  const result = (await response.json()) as { farm?: AccountFarm; error?: string };
+  if (!response.ok) {
+    const { error: cleanupError } = await bucket.remove(uploadedPaths);
+    if (cleanupError)
+      console.error("Could not clean up farm photos after a failed farm update.", cleanupError);
+    throw new Error(result.error ?? "Farm photos could not be attached to the farm.");
+  }
+  if (!result.farm)
+    throw new Error("Farm photos were uploaded but the farm could not be reloaded.");
+  return result.farm;
+}
+
+export async function submitAccountFarmForAssessment(
+  input: {
+    id?: string;
+    farmName: string;
+    province: string;
+    district: string;
+    ward: string;
+    farmSizeHa: number;
+    expectedProductionKg: number;
+    isPrimary?: boolean;
+  },
+  photos: File[],
+) {
+  let { farm } = await saveAccountFarm({ ...input, resetAssessment: true });
+  if (photos.length) farm = await uploadAccountFarmPhotos(farm.id, photos);
+  if ((farm.photo_paths?.length ?? 0) < 4)
+    throw new Error("Upload at least four farm photos before submitting for assessment.");
+  return saveAccountFarm({ ...input, id: farm.id, submitForAssessment: true });
+}
+
+export async function loadFarmAssessmentQueue() {
+  const token = await requireSessionToken();
+  const response = await fetch("/api/auth/farm-assessments", {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const result = (await response.json()) as { farms?: FarmAssessment[]; error?: string };
+  if (!response.ok || !result.farms)
+    throw new Error(result.error ?? "Farm assessments could not be loaded.");
+  return result.farms;
+}
+
+export async function reviewFarmAssessment(input: {
+  farmId: string;
+  decision: "assessed" | "approved" | "rejected";
+  notes: string;
+}) {
+  const token = await requireSessionToken();
+  return postJson<{ farm: FarmAssessment }>("/api/auth/farm-assessments/review", input, token);
 }
 
 export async function completeFarmerOnboarding(input: FarmerProfileDraft) {

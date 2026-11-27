@@ -10,8 +10,11 @@ import {
 } from "@tanstack/react-router";
 import { type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
+import { startPwaInstallBridge } from "@/lib/pwa-install";
 
 import appCss from "../styles.css?url";
+
+startPwaInstallBridge();
 
 function NotFoundComponent() {
   return (

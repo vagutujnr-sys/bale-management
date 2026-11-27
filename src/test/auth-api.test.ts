@@ -413,6 +413,197 @@ describe("server auth API", () => {
     });
   });
 
+  it("requires four saved farm photos before submitting a farm for assessment", async () => {
+    const userId = "77777777-7777-4777-8777-777777777777";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/auth/v1/user") return Response.json({ id: userId });
+        if (url.pathname === "/rest/v1/profiles") {
+          return Response.json([
+            {
+              user_id: userId,
+              display_name: "Example Farmer",
+              role: "farmer",
+              farmer_id: null,
+            },
+          ]);
+        }
+        if (url.pathname === "/rest/v1/farms") {
+          return Response.json([{ photo_paths: ["one.jpg", "two.jpg", "three.jpg"] }]);
+        }
+        throw new Error(`Unexpected Supabase request: ${url.pathname}`);
+      }),
+    );
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/farms", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer session-token",
+        },
+        body: JSON.stringify({
+          id: "88888888-8888-4888-8888-888888888888",
+          farmName: "North Farm",
+          province: "Harare",
+          district: "Harare",
+          ward: "1",
+          farmSizeHa: 2,
+          expectedProductionKg: 500,
+          submitForAssessment: true,
+        }),
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(400);
+    await expect(response?.json()).resolves.toMatchObject({
+      error: "Upload at least four farm photos before submitting for assessment.",
+    });
+  });
+
+  it("submits a complete farm into the assessment queue", async () => {
+    const userId = "77777777-7777-4777-8777-777777777777";
+    const farmId = "88888888-8888-4888-8888-888888888888";
+    const photoPaths = ["one.jpg", "two.jpg", "three.jpg", "four.jpg"];
+    const savedValues: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        const method = init?.method ?? "GET";
+        if (url.pathname === "/auth/v1/user") return Response.json({ id: userId });
+        if (url.pathname === "/rest/v1/profiles" && method === "GET") {
+          return Response.json([
+            {
+              user_id: userId,
+              display_name: "Example Farmer",
+              role: "farmer",
+              farmer_id: null,
+            },
+          ]);
+        }
+        if (url.pathname === "/rest/v1/farms" && method === "GET") {
+          return url.searchParams.get("select") === "photo_paths"
+            ? Response.json([{ photo_paths: photoPaths }])
+            : Response.json([{ id: farmId }]);
+        }
+        if (url.pathname === "/rest/v1/farms" && method === "PATCH") {
+          const values = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          if (values["review_status"] === "pending_assessment") savedValues.push(values);
+          return values["review_status"] === "pending_assessment"
+            ? Response.json([{ id: farmId, ...values, photo_paths: photoPaths }])
+            : new Response(null, { status: 204 });
+        }
+        throw new Error(`Unexpected Supabase request: ${method} ${url.pathname}`);
+      }),
+    );
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/farms", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer session-token",
+        },
+        body: JSON.stringify({
+          id: farmId,
+          farmName: "North Farm",
+          province: "Harare",
+          district: "Harare",
+          ward: "1",
+          farmSizeHa: 2.5,
+          expectedProductionKg: 700,
+          isPrimary: true,
+          submitForAssessment: true,
+        }),
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      farm: { id: farmId, review_status: "pending_assessment", photo_paths: photoPaths },
+    });
+    expect(savedValues[0]).toMatchObject({
+      farm_size_ha: 2.5,
+      expected_production_kg: 700,
+      review_status: "pending_assessment",
+    });
+  });
+
+  it("rejects farm photo paths outside the authenticated farmer's farm", async () => {
+    const userId = "77777777-7777-4777-8777-777777777777";
+    const farmId = "88888888-8888-4888-8888-888888888888";
+    const otherUserId = "99999999-9999-4999-8999-999999999999";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") return Response.json({ id: userId });
+      if (url.pathname === "/rest/v1/profiles") {
+        return Response.json([
+          {
+            user_id: userId,
+            display_name: "Example Farmer",
+            role: "farmer",
+            farmer_id: null,
+          },
+        ]);
+      }
+      throw new Error(`Unexpected Supabase request: ${url.pathname}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/farms/photos", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer session-token",
+        },
+        body: JSON.stringify({
+          farmId,
+          photoPaths: [`${otherUserId}/${farmId}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg`],
+        }),
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(400);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not expose the assessment queue to farmer accounts", async () => {
+    const userId = "77777777-7777-4777-8777-777777777777";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") return Response.json({ id: userId });
+      if (url.pathname === "/rest/v1/profiles") {
+        return Response.json([
+          {
+            user_id: userId,
+            display_name: "Example Farmer",
+            role: "farmer",
+            farmer_id: null,
+          },
+        ]);
+      }
+      throw new Error(`Unexpected Supabase request: ${url.pathname}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await handleAuthApiRequest(
+      new Request("https://app.example/api/auth/farm-assessments", {
+        headers: { authorization: "Bearer session-token" },
+      }),
+      config,
+    );
+
+    expect(response?.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("completes a farmer profile and links the primary farm to its account", async () => {
     const userId = "99999999-9999-4999-8999-999999999999";
     const farmerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

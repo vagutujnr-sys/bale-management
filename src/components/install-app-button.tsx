@@ -2,15 +2,11 @@ import { Check, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/language-context";
-
-type InstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+import { requestPwaInstall, subscribeToPwaInstallPrompt } from "@/lib/pwa-install";
 
 export function InstallAppButton({ appName }: { appName: string }) {
   const { t } = useLanguage();
-  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installPromptAvailable, setInstallPromptAvailable] = useState(false);
   const [installed, setInstalled] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -21,30 +17,25 @@ export function InstallAppButton({ appName }: { appName: string }) {
         (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
       setInstalled(displayMode.matches || iosStandalone);
     };
-    const capturePrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as InstallPromptEvent);
-      setMessage("");
-    };
     const installedListener = () => {
       setInstalled(true);
-      setInstallPrompt(null);
+      setInstallPromptAvailable(false);
       setMessage(t("{appName} is installed and ready to open.", { appName }));
     };
 
     checkInstalled();
-    window.addEventListener("beforeinstallprompt", capturePrompt);
+    const unsubscribe = subscribeToPwaInstallPrompt(setInstallPromptAvailable);
     window.addEventListener("appinstalled", installedListener);
     displayMode.addEventListener("change", checkInstalled);
     return () => {
-      window.removeEventListener("beforeinstallprompt", capturePrompt);
+      unsubscribe();
       window.removeEventListener("appinstalled", installedListener);
       displayMode.removeEventListener("change", checkInstalled);
     };
   }, [appName, t]);
 
   const install = async () => {
-    if (!installPrompt) {
+    if (!installPromptAvailable) {
       const isAppleMobile = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
       setMessage(
         isAppleMobile
@@ -54,16 +45,21 @@ export function InstallAppButton({ appName }: { appName: string }) {
       return;
     }
 
-    await installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    setInstallPrompt(null);
-    setMessage(
-      t(
-        outcome === "accepted"
-          ? "Installation accepted. Your app is being added."
-          : "Installation cancelled. You can try again anytime.",
-      ),
-    );
+    try {
+      const outcome = await requestPwaInstall();
+      setMessage(
+        t(
+          outcome === "accepted"
+            ? "Installation accepted. Your app is being added."
+            : outcome === "dismissed"
+              ? "Installation cancelled. You can try again anytime."
+              : "Open your browser menu and choose Install app or Add to Home screen.",
+        ),
+      );
+    } catch (error) {
+      console.error("Could not install the app.", error);
+      setMessage(t("Installation failed. Please try again from your browser menu."));
+    }
   };
 
   if (installed) {
@@ -80,6 +76,7 @@ export function InstallAppButton({ appName }: { appName: string }) {
   return (
     <div className="space-y-2">
       <Button
+        data-pwa-install-button
         type="button"
         variant="outline"
         size="lg"

@@ -35,9 +35,11 @@ import { useLanguage } from "@/lib/language-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getSupabaseClient } from "@/lib/supabase";
+import { pwaLinks, pwaMeta } from "@/lib/pwa";
 import {
   loadFarmerDashboard,
   saveAccountFarm,
+  submitAccountFarmForAssessment,
   type AccountFarm,
   type FarmerDashboard,
   type LinkedAccountProfile,
@@ -46,6 +48,7 @@ import {
 export const Route = createFileRoute("/farmer")({
   head: () => ({
     meta: [
+      ...pwaMeta("farmer"),
       { title: "Farmer App — Bale Contract System" },
       {
         name: "description",
@@ -59,6 +62,7 @@ export const Route = createFileRoute("/farmer")({
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
+    links: pwaLinks("farmer"),
   }),
   component: FarmerApp,
 });
@@ -813,25 +817,64 @@ function ProfileScreen({
     province: "",
     district: "",
     ward: "",
+    farmSizeHa: "",
+    expectedProductionKg: "",
   });
+  const [farmPhotos, setFarmPhotos] = useState<File[]>([]);
   const [farmError, setFarmError] = useState("");
   const [savingFarm, setSavingFarm] = useState(false);
 
-  const saveFarm = async (farm: AccountFarm | typeof farmDraft) => {
+  const saveFarm = async (farm: AccountFarm) => {
     setSavingFarm(true);
     setFarmError("");
     try {
       const saved = await saveAccountFarm({
-        ...("id" in farm ? { id: farm.id } : {}),
-        farmName: "farm_name" in farm ? farm.farm_name : farm.farmName,
+        id: farm.id,
+        farmName: farm.farm_name,
         province: farm.province ?? "",
         district: farm.district ?? "",
         ward: farm.ward ?? "",
-        isPrimary: "is_primary" in farm ? farm.is_primary : farms.length === 0,
+        ...(farm.farm_size_ha == null ? {} : { farmSizeHa: Number(farm.farm_size_ha) }),
+        ...(farm.expected_production_kg == null
+          ? {}
+          : { expectedProductionKg: Number(farm.expected_production_kg) }),
+        isPrimary: farm.is_primary,
       });
       onFarmsChange([...farms.filter((existing) => existing.id !== saved.farm.id), saved.farm]);
+    } catch (error) {
+      setFarmError(error instanceof Error ? error.message : "The farm could not be saved.");
+    } finally {
+      setSavingFarm(false);
+    }
+  };
+
+  const submitNewFarm = async () => {
+    setSavingFarm(true);
+    setFarmError("");
+    try {
+      const { farm } = await submitAccountFarmForAssessment(
+        {
+          farmName: farmDraft.farmName,
+          province: farmDraft.province,
+          district: farmDraft.district,
+          ward: farmDraft.ward,
+          farmSizeHa: Number(farmDraft.farmSizeHa),
+          expectedProductionKg: Number(farmDraft.expectedProductionKg),
+          isPrimary: farms.length === 0,
+        },
+        farmPhotos,
+      );
+      onFarmsChange([...farms.filter((existing) => existing.id !== farm.id), farm]);
       setAddingFarm(false);
-      setFarmDraft({ farmName: "", province: "", district: "", ward: "" });
+      setFarmDraft({
+        farmName: "",
+        province: "",
+        district: "",
+        ward: "",
+        farmSizeHa: "",
+        expectedProductionKg: "",
+      });
+      setFarmPhotos([]);
     } catch (error) {
       setFarmError(error instanceof Error ? error.message : "The farm could not be saved.");
     } finally {
@@ -897,6 +940,16 @@ function ProfileScreen({
                   <p className="mt-1 text-sm text-muted-foreground">
                     {[farm.ward, farm.district, farm.province].filter(Boolean).join(", ")}
                   </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("{size} ha • {production} kg expected • {photos} photos", {
+                      size: farm.farm_size_ha ?? "—",
+                      production: farm.expected_production_kg ?? "—",
+                      photos: farm.photo_paths?.length ?? 0,
+                    })}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-primary">
+                    {t(`Farm status: ${(farm.review_status ?? "draft").replaceAll("_", " ")}`)}
+                  </p>
                 </div>
                 {farm.is_primary ? (
                   <span className="text-xs font-medium text-primary">{t("Primary")}</span>
@@ -919,7 +972,7 @@ function ProfileScreen({
               className="space-y-3 rounded-2xl border bg-card p-4"
               onSubmit={(event) => {
                 event.preventDefault();
-                void saveFarm(farmDraft);
+                void submitNewFarm();
               }}
             >
               {(
@@ -941,6 +994,52 @@ function ProfileScreen({
                   />
                 </label>
               ))}
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">{t("Farm size (hectares)")}</span>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={farmDraft.farmSizeHa}
+                  onChange={(event) =>
+                    setFarmDraft((current) => ({ ...current, farmSizeHa: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">
+                  {t("Expected production (kg per season)")}
+                </span>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={farmDraft.expectedProductionKg}
+                  onChange={(event) =>
+                    setFarmDraft((current) => ({
+                      ...current,
+                      expectedProductionKg: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-medium">{t("Farm photos (at least 4)")}</span>
+                <Input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  onChange={(event) => setFarmPhotos(Array.from(event.target.files ?? []))}
+                  required
+                />
+                <span className="block text-xs text-muted-foreground">
+                  {t(
+                    "Upload at least 4 clear JPEG, PNG or WebP photos. Maximum 10 photos, 8 MB each.",
+                  )}
+                </span>
+              </label>
               {farmError && (
                 <p role="alert" className="text-sm text-destructive">
                   {farmError}

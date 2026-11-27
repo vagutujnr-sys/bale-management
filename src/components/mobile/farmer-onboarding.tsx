@@ -5,8 +5,8 @@ import { LanguageSelector } from "@/components/mobile/language-selector";
 import {
   completeFarmerOnboarding,
   refreshAccountProfile,
-  saveAccountFarm,
   saveAccountOnboarding,
+  submitAccountFarmForAssessment,
   type AccountFarm,
   type LinkedAccountProfile,
 } from "@/lib/account-auth";
@@ -15,6 +15,10 @@ import { useLanguage } from "@/lib/language-context";
 
 const steps = ["identity", "farm", "contact"] as const;
 type Step = (typeof steps)[number];
+type OnboardingDraft = FarmerProfileDraft & {
+  farmSizeHa: string;
+  expectedProductionKg: string;
+};
 
 const labels: Partial<Record<keyof FarmerProfileDraft, string>> = {
   growerNumber: "Grower number",
@@ -29,11 +33,11 @@ const labels: Partial<Record<keyof FarmerProfileDraft, string>> = {
   contractingCompany: "Contracting company",
 };
 
-function savedString(data: Record<string, unknown>, key: keyof FarmerProfileDraft) {
+function savedString(data: Record<string, unknown>, key: string) {
   return typeof data[key] === "string" ? (data[key] as string) : "";
 }
 
-function initialDraft(account: LinkedAccountProfile): FarmerProfileDraft {
+function initialDraft(account: LinkedAccountProfile): OnboardingDraft {
   const saved = account.onboarding?.form_data ?? {};
   const names = account.profile.displayName.trim().split(/\s+/);
   const primaryFarm = account.farms?.find((farm) => farm.is_primary) ?? account.farms?.[0];
@@ -46,6 +50,14 @@ function initialDraft(account: LinkedAccountProfile): FarmerProfileDraft {
     province: savedString(saved, "province") || primaryFarm?.province || "",
     district: savedString(saved, "district") || primaryFarm?.district || "",
     ward: savedString(saved, "ward") || primaryFarm?.ward || "",
+    farmSizeHa:
+      savedString(saved, "farmSizeHa") ||
+      (primaryFarm?.farm_size_ha == null ? "" : String(primaryFarm.farm_size_ha)),
+    expectedProductionKg:
+      savedString(saved, "expectedProductionKg") ||
+      (primaryFarm?.expected_production_kg == null
+        ? ""
+        : String(primaryFarm.expected_production_kg)),
     phone: account.profile.phone ?? account.farmer?.phone ?? "",
     alternatePhone: savedString(saved, "alternatePhone"),
     contractingCompany: savedString(saved, "contractingCompany"),
@@ -74,8 +86,9 @@ export function FarmerOnboarding({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [farmPhotos, setFarmPhotos] = useState<File[]>([]);
 
-  const update = (field: keyof FarmerProfileDraft, value: string) =>
+  const update = (field: keyof OnboardingDraft, value: string) =>
     setDraft((current) => ({ ...current, [field]: value }));
 
   const continueStep = async () => {
@@ -86,15 +99,21 @@ export function FarmerOnboarding({
         await saveAccountOnboarding({ currentStep: "farm", formData: draft });
         setStep("farm");
       } else if (step === "farm") {
-        const farmResult = await saveAccountFarm({
-          ...(primaryFarm ? { id: primaryFarm.id } : {}),
-          farmName: draft.farmName,
-          province: draft.province,
-          district: draft.district,
-          ward: draft.ward,
-          isPrimary: true,
-        });
+        const farmResult = await submitAccountFarmForAssessment(
+          {
+            ...(primaryFarm ? { id: primaryFarm.id } : {}),
+            farmName: draft.farmName,
+            province: draft.province,
+            district: draft.district,
+            ward: draft.ward,
+            farmSizeHa: Number(draft.farmSizeHa),
+            expectedProductionKg: Number(draft.expectedProductionKg),
+            isPrimary: true,
+          },
+          farmPhotos,
+        );
         setPrimaryFarm(farmResult.farm);
+        setFarmPhotos([]);
         await saveAccountOnboarding({ currentStep: "contact", formData: draft });
         setStep("contact");
       } else {
@@ -157,6 +176,57 @@ export function FarmerOnboarding({
             />
           </label>
         ))}
+        {step === "farm" && (
+          <>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">{t("Farm size (hectares)")}</span>
+              <Input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={draft.farmSizeHa}
+                onChange={(event) => update("farmSizeHa", event.target.value)}
+                required
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">
+                {t("Expected production (kg per season)")}
+              </span>
+              <Input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={draft.expectedProductionKg}
+                onChange={(event) => update("expectedProductionKg", event.target.value)}
+                required
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">{t("Farm photos (at least 4)")}</span>
+              <Input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                onChange={(event) => setFarmPhotos(Array.from(event.target.files ?? []))}
+                aria-describedby="farm-photo-help"
+              />
+              <span id="farm-photo-help" className="block text-xs text-muted-foreground">
+                {t(
+                  "Upload at least 4 clear JPEG, PNG or WebP photos. Maximum 10 photos, 8 MB each.",
+                )}
+              </span>
+              {(farmPhotos.length > 0 || (primaryFarm?.photo_paths?.length ?? 0) > 0) && (
+                <span className="block text-xs text-muted-foreground">
+                  {t("{count} new photos selected; {saved} already saved.", {
+                    count: farmPhotos.length,
+                    saved: primaryFarm?.photo_paths?.length ?? 0,
+                  })}
+                </span>
+              )}
+            </label>
+          </>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
